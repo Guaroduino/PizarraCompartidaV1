@@ -1,0 +1,12 @@
+
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // Permitir lectura/escritura a cualquier usuario autenticado (incluyendo anónimos)
+    // Esto es necesario para que la pizarra colaborativa funcione fluidamente.
+    match /{allPaths=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}

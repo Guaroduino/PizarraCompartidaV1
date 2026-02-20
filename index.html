@@ -1,0 +1,156 @@
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pizarra Compartida</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts Import -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Lobster&family=Montserrat:wght@400;700&family=Oswald:wght@400;700&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Roboto:wght@400;700&family=Pacifico&family=Dancing+Script:wght@400;700&display=swap" rel="stylesheet">
+    
+    <style id="theme-variables">
+      :root {
+        --color-primary: #4f46e5;
+        --color-primary-dark: #4338ca;
+        --color-secondary: #10b981;
+        --color-text-base: #1f2937; /* text-gray-800 */
+      }
+    </style>
+    <style>
+      /* Anulaciones de color del tema oscuro */
+      .dark {
+        --color-primary: #9ca3af; /* gray-400 */
+        --color-primary-dark: #6b7280; /* gray-500 */
+        --color-secondary: #6b7280; /* gray-500 */
+        --color-text-base: #e5e7eb; /* text-gray-200 */
+      }
+
+      /* Estilos de alto contraste */
+      .high-contrast {
+        --color-primary: #0000ff; /* Blue */
+        --color-primary-dark: #0000aa;
+        --color-secondary: #0000ff;
+        --color-text-base: #000000;
+        background-color: #ffffff;
+        color: #000000;
+      }
+      .high-contrast .bg-white, .high-contrast .bg-light-bg { background-color: #ffffff !important; }
+      .high-contrast .text-gray-800, .high-contrast .text-gray-900 { color: #000000 !important; }
+      .high-contrast .bg-primary { background-color: #000000 !important; color: #ffff00 !important; }
+      .high-contrast a { color: var(--color-primary) !important; }
+      .high-contrast .border-gray-200, .high-contrast .border-gray-300 { border-color: #000000 !important; }
+
+      .dark.high-contrast {
+        --color-primary: #00ffff; /* Cyan */
+        --color-primary-dark: #00aaaa;
+        --color-secondary: #00ffff;
+        --color-text-base: #ffff00; /* Yellow */
+        background-color: #000000;
+        color: #ffff00;
+      }
+      .dark.high-contrast .bg-dark-bg, .dark.high-contrast .bg-dark-card { background-color: #000000 !important; }
+      .dark.high-contrast .text-gray-200, .dark.high-contrast .dark\:text-white { color: #ffff00 !important; }
+      .dark.high-contrast .bg-primary { background-color: #ffff00 !important; color: #000000 !important; }
+      .dark.high-contrast .border-gray-700, .dark.high-contrast .border-gray-600 { border-color: #ffff00 !important; }
+
+    </style>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              'primary': 'var(--color-primary)',
+              'primary-dark': 'var(--color-primary-dark)',
+              'secondary': 'var(--color-secondary)',
+              'light-bg': '#e5e7eb',
+              'dark-bg': '#111111',
+              'dark-card': '#1e1e1e',
+              'dark-text': '#d1d5db'
+            }
+          }
+        }
+      }
+    </script>
+    <script>
+      // Aplica el tema inmediatamente para evitar FOUC (Flash of Unstyled Content)
+      if (localStorage.getItem('theme') === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+        document.documentElement.classList.add('dark')
+      } else {
+        document.documentElement.classList.remove('dark')
+      }
+      // Aplicar ajustes de accesibilidad
+      const savedZoom = localStorage.getItem('zoomLevel');
+      if (savedZoom) {
+        document.documentElement.style.fontSize = `${savedZoom}%`;
+      }
+      const savedContrast = localStorage.getItem('highContrast');
+      if (savedContrast === 'true') {
+         document.documentElement.classList.add('high-contrast');
+      }
+    </script>
+    <style>
+      /* Estilos personalizados para un mejor contraste del texto de entrada */
+      .input-style, 
+      input[type="text"], 
+      input[type="email"], 
+      input[type="password"], 
+      input[type="date"], 
+      select,
+      textarea {
+        color: #111827; /* text-gray-900 */
+      }
+      .dark .input-style, 
+      .dark input[type="text"], 
+      .dark input[type="email"], 
+      .dark input[type="password"], 
+      .dark input[type="date"], 
+      .dark select, 
+      .dark textarea {
+        color: #f9fafb; /* text-gray-50 */
+      }
+      
+      /* Texto de marcador de posición más oscuro para una mejor accesibilidad */
+      ::placeholder {
+        color: #6b7280; /* gray-500 */
+        opacity: 1; /* Firefox tiene una opacidad menor por defecto */
+      }
+
+      .dark ::placeholder {
+        color: #9ca3af; /* gray-400 */
+      }
+      
+      /* Estilos para el contenido de texto enriquecido renderizado */
+      .rich-text-content p { margin-bottom: 0.75rem; }
+      .rich-text-content strong, .rich-text-content b { font-weight: 600; }
+      .rich-text-content em, .rich-text-content i { font-style: italic; }
+      .rich-text-content u { text-decoration: underline; }
+      .rich-text-content s { text-decoration: line-through; }
+      .rich-text-content sub { color: var(--color-text-base); vertical-align: baseline; font-size: inherit; line-height: inherit; position: static; }
+      .rich-text-content ul { list-style-type: disc; padding-left: 1.5rem; margin-bottom: 0.75rem; }
+      .rich-text-content li { margin-bottom: 0.25rem; }
+      .rich-text-content a { color: var(--color-primary); text-decoration: underline; }
+      .rich-text-content h1 { font-size: 2em; font-weight: bold; margin-bottom: 1rem; }
+      .rich-text-content h2 { font-size: 1.5em; font-weight: bold; margin-bottom: 0.75rem; }
+      .rich-text-content h3 { font-size: 1.17em; font-weight: bold; margin-bottom: 0.75rem; }
+      .rich-text-content blockquote { border-left: 4px solid #d1d5db; padding-left: 1rem; margin: 1rem 0; color: #4b5563; font-style: italic; }
+      .dark .rich-text-content blockquote { border-color: #4b5563; color: #9ca3af; }
+      
+      /* Marcador de posición para div contentEditable */
+      [contenteditable][data-placeholder]:empty:before {
+        content: attr(data-placeholder);
+        color: #9ca3af; /* gray-400 */
+        pointer-events: none;
+        display: block;
+      }
+    </style>
+    <link rel="stylesheet" href="./index.css" />
+  </head>
+  <body class="bg-light-bg dark:bg-dark-bg">
+    <div id="root"></div>
+    <script type="module" src="./index.tsx"></script>
+  </body>
+</html>

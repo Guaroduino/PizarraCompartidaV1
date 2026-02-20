@@ -1,0 +1,107 @@
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Funciones de ayuda
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isTeacher() {
+      return isSignedIn() && 
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher';
+    }
+
+    // Reglas para la Cartelera Pública
+    match /publicFeed/{postId} {
+      allow read: if true;
+      allow write: if isTeacher();
+    }
+
+    // --- REGLAS DE PIZARRA (Permitir colaboración) ---
+    // Cambiamos de isTeacher() a isSignedIn() para que estudiantes/invitados puedan dibujar y subir imágenes.
+    
+    match /whiteboardBoards/{id} { allow read: if true; allow write: if isSignedIn(); }
+    match /whiteboardPages/{id} { allow read: if true; allow write: if isSignedIn(); }
+    match /whiteboardLayers/{id} { allow read: if true; allow write: if isSignedIn(); }
+    match /whiteboardStrokes/{id} { allow read: if true; allow write: if isSignedIn(); }
+    
+    // Reglas específicas para imágenes y texto para permitir campos adicionales como teacherOnly
+    match /whiteboardImages/{id} { 
+      allow read: if true; 
+      allow write: if isSignedIn(); 
+    }
+    match /whiteboardTexts/{id} { 
+      allow read: if true; 
+      allow write: if isSignedIn(); 
+    }
+    
+    // Snapshots (Solo profesor puede guardar estados globales por seguridad)
+    match /whiteboardSnapshots/{id} {
+      allow read, write, delete: if isTeacher();
+    }
+
+    // --- REGLAS DE LIBRERÍA (Personal y Privada) ---
+    match /libraryItems/{itemId} {
+      // ESTRICTO: Solo el dueño puede leer sus items
+      allow read: if isSignedIn() && resource.data.teacherId == request.auth.uid;
+      // Permitir crear solo si se asigna a uno mismo
+      allow create: if isSignedIn() && request.resource.data.teacherId == request.auth.uid;
+      // Permitir editar/borrar solo si pertenece al usuario
+      allow update, delete: if isSignedIn() && resource.data.teacherId == request.auth.uid;
+    }
+
+    match /libraryFolders/{folderId} {
+      // ESTRICTO: Solo el dueño puede leer sus carpetas
+      allow read: if isSignedIn() && resource.data.teacherId == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.teacherId == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.teacherId == request.auth.uid;
+    }
+
+    // NUEVO: Reglas para Librería de Clases (Plantillas de Pizarra)
+    match /libraryClasses/{classId} {
+      allow read: if isSignedIn() && resource.data.teacherId == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.teacherId == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.teacherId == request.auth.uid;
+    }
+
+    // Reglas para la colección de usuarios
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (request.auth.uid == userId || isTeacher());
+    }
+
+    // Reglas para Cursos
+    match /courses/{courseId} {
+      allow read: if isSignedIn();
+      allow write: if isTeacher();
+      
+      match /content/{unitId} {
+        allow read: if isSignedIn();
+        allow write: if isTeacher();
+      }
+      
+      allow update: if isTeacher();
+    }
+
+    // Configuración Global
+    match /globalSettings/{settingId} {
+      allow read: if true;
+      allow write: if isTeacher();
+    }
+
+    // Foros
+    match /forums/{courseId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+    
+    // Historiales de Chat
+    match /chatHistories/{historyId} {
+      allow read: if isSignedIn() && (historyId.startsWith(request.auth.uid) || isTeacher());
+      allow write: if isSignedIn() && historyId.startsWith(request.auth.uid);
+    }
+  }
+}
