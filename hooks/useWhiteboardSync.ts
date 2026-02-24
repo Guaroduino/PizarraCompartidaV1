@@ -7,6 +7,8 @@ import {
 } from "firebase/firestore";
 import { db } from '../services/firebase';
 import type { User, WhiteboardBoard, WhiteboardLayer, WhiteboardStroke, WhiteboardImage, WhiteboardText, WhiteboardPage, GridConfig, LibraryClass } from '../types';
+import { normalizeItems, generateThumbnailSvg } from '../utils/libraryUtils';
+import { uploadFile } from '../services/storageService';
 import type { WhiteboardSnapshot } from '../types/whiteboardTypes';
 
 export const useWhiteboardSync = (user: User | null, isTeacher: boolean, courseId: string, isFollowingTeacher: boolean = true) => {
@@ -589,6 +591,84 @@ export const useWhiteboardSync = (user: User | null, isTeacher: boolean, courseI
         }
     };
 
+    // --- NEW: SAVE SINGLE PAGE TO LIBRARY ---
+    const savePageToLibrary = async (pageId: string, teacherId: string, name: string) => {
+        if (!pageId || !teacherId) return;
+        setIsSyncing(true);
+        try {
+            // Fetch strokes/images/texts for this page
+            const [strokesSnap, imagesSnap, textsSnap] = await Promise.all([
+                getDocs(query(collection(db, 'whiteboardStrokes'), where('pageId', '==', pageId))),
+                getDocs(query(collection(db, 'whiteboardImages'), where('pageId', '==', pageId))),
+                getDocs(query(collection(db, 'whiteboardTexts'), where('pageId', '==', pageId)))
+            ]);
+
+            const strokesData = strokesSnap.docs.map(d => ({ id: d.id, ...d.data() } as WhiteboardStroke));
+            const imagesData = imagesSnap.docs.map(d => ({ id: d.id, ...d.data() } as WhiteboardImage));
+            const textsData = textsSnap.docs.map(d => ({ id: d.id, ...d.data() } as WhiteboardText));
+
+            // Normalize for thumbnail
+            const normalized = normalizeItems(strokesData, imagesData, textsData);
+            let thumbnailUrl = '';
+            if (normalized) {
+                const svgDataUri = generateThumbnailSvg(normalized.data, normalized.width || 800, normalized.height || 600);
+                try {
+                    // Rasterize SVG into PNG via canvas to avoid huge data URIs and ensure broad compatibility
+                    const img = new Image();
+                    // Important: set crossOrigin to anonymous for external images (may still fail due to CORS)
+                    img.crossOrigin = 'anonymous';
+                    img.src = svgDataUri;
+
+                    await new Promise<void>((resolve, reject) => {
+                        img.onload = () => resolve();
+                        img.onerror = (e) => reject(e || new Error('Error loading SVG for rasterization'));
+                    });
+
+                    const padding = 10;
+                    const w = (normalized.width || 800) + padding * 2;
+                    const h = (normalized.height || 600) + padding * 2;
+                    const scale = 2; // higher resolution
+                    const canvas = document.createElement('canvas');
+                    canvas.width = Math.max(1, Math.round(w * scale));
+                    canvas.height = Math.max(1, Math.round(h * scale));
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) throw new Error('Canvas 2D not supported');
+                    // white background for thumbnails
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+                    const jpegQuality = 0.85; // reasonable quality/size tradeoff
+                    const blob: Blob | null = await new Promise((res) => canvas.toBlob(res, 'image/jpeg', jpegQuality));
+                    if (!blob) throw new Error('Failed to rasterize thumbnail');
+                    const file = new File([blob], `page-thumb-${Date.now()}.jpg`, { type: 'image/jpeg' });
+                    thumbnailUrl = await uploadFile('library/thumbnails', file);
+                } catch (err) {
+                    console.warn('Error rasterizing/uploading thumbnail to storage, will save without thumbnail URL.', err);
+                    thumbnailUrl = '';
+                }
+            }
+
+            // Save as a library item so it can be dropped into other boards
+            await addDoc(collection(db, 'libraryItems'), {
+                teacherId,
+                type: 'page',
+                name,
+                thumbnailUrl: thumbnailUrl || '',
+                data: { strokes: strokesData, images: imagesData, texts: textsData },
+                // Mark as quick so it appears in the QuickLibraryBar for the teacher
+                isQuick: true,
+                timestamp: Date.now()
+            });
+
+        } catch (error) {
+            console.error('Error saving page to library:', error);
+            alert('Error al guardar la diapositiva en la librería.');
+        } finally {
+            setIsSyncing(false);
+        }
+    };
+
     // --- NEW: LOAD FROM LIBRARY (Instantiate Class Template) ---
     const loadBoardFromLibrary = async (libraryClass: LibraryClass) => {
         if (!courseId || !libraryClass.data) return;
@@ -684,7 +764,8 @@ export const useWhiteboardSync = (user: User | null, isTeacher: boolean, courseI
         exportBoard, importBoard,
         courseTitle, 
         courseCode,
-        saveBoardToLibrary, 
+    saveBoardToLibrary,
+    savePageToLibrary,
         loadBoardFromLibrary,
         syncEnabled, toggleGlobalSync // Exported new sync state & controls
     };

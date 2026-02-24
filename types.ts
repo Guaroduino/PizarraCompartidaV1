@@ -69,6 +69,7 @@ export interface WhiteboardLayer {
   order: number;
   visible: boolean;
   opacity?: number; // Opacidad de la capa (0 a 1)
+  locked?: boolean; // Indicates if the layer is locked for selection/interactions
 }
 
 export interface WhiteboardStroke {
@@ -143,13 +144,16 @@ export interface WhiteboardText {
   fontStyle?: 'normal' | 'italic';
   textDecoration?: 'none' | 'underline' | 'line-through';
   groupId?: string;
+  // Controla si el texto puede ser copiado desde la interfaz (true por defecto)
+  allowCopy?: boolean;
 }
 
 // New: Library Item
 export interface LibraryItem {
   id: string;
   teacherId: string;
-  type: 'group' | 'image' | 'svg';
+  // 'page' added for single-slide items saved from the whiteboard
+  type: 'group' | 'image' | 'svg' | 'page';
   name: string;
   thumbnailUrl?: string; // Preview URL
   data: any; // Serialized strokes/images/texts, normalized to (0,0)

@@ -1,7 +1,7 @@
 
 import React from 'react';
 import type { WhiteboardLayer } from '../../../types';
-import { IconPlus, IconEye, IconEyeSlash, IconChevronUp, IconChevronDown, IconTrash } from '../../Icons';
+import { IconPlus, IconEye, IconEyeSlash, IconChevronUp, IconChevronDown, IconTrash, IconLockOpen, IconLockClosed } from '../../Icons';
 
 interface LayerManagerProps {
     layers: WhiteboardLayer[];
@@ -15,14 +15,14 @@ interface LayerManagerProps {
     onClose: () => void;
 }
 
-export const LayerManager: React.FC<LayerManagerProps> = ({ 
-    layers, activeLayerId, onSetActiveLayer, onAddLayer, onDeleteLayer, onToggleVisibility, onMoveLayer, onUpdateLayer, onClose 
+export const LayerManager: React.FC<LayerManagerProps> = ({
+    layers, activeLayerId, onSetActiveLayer, onAddLayer, onDeleteLayer, onToggleVisibility, onMoveLayer, onUpdateLayer, onClose
 }) => {
     return (
         <div className="absolute top-24 right-4 w-72 bg-white/95 dark:bg-dark-card backdrop-blur-xl border border-gray-200 dark:border-gray-700 rounded-2xl shadow-2xl p-4 z-50 animate-in slide-in-from-right-4 pointer-events-auto">
-            <div className="flex justify-between items-center mb-4 border-b pb-2"> 
-                <h3 className="font-black text-[10px] uppercase tracking-widest text-gray-400">Capas</h3> 
-                <button onClick={onAddLayer} className="p-1 text-primary hover:bg-primary/10 rounded-lg"><IconPlus className="w-5 h-5" /></button> 
+            <div className="flex justify-between items-center mb-4 border-b pb-2">
+                <h3 className="font-black text-[10px] uppercase tracking-widest text-gray-400">Capas</h3>
+                <button onClick={onAddLayer} className="p-1 text-primary hover:bg-primary/10 rounded-lg"><IconPlus className="w-5 h-5" /></button>
             </div>
             <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-2">
                 {[...layers].sort((a, b) => b.order - a.order).map((layer, idx, arr) => (
@@ -30,6 +30,7 @@ export const LayerManager: React.FC<LayerManagerProps> = ({
                         <div className="flex items-center gap-2 mb-2">
                             <button onClick={() => onSetActiveLayer(layer.id)} className="flex-grow text-left truncate"><p className={`text-xs font-bold ${activeLayerId === layer.id ? 'text-primary' : 'text-gray-700 dark:text-gray-300'}`}>{layer.name}</p></button>
                             <div className="flex items-center gap-1">
+                                <button onClick={(e) => { e.stopPropagation(); onUpdateLayer(layer.id, { locked: !layer.locked }); }} className="p-1.5 hover:bg-gray-200 rounded">{layer.locked ? <IconLockClosed className="w-4 h-4 text-red-400" /> : <IconLockOpen className="w-4 h-4 text-gray-400" />}</button>
                                 <button onClick={(e) => { e.stopPropagation(); onToggleVisibility(layer); }} className="p-1.5 hover:bg-gray-200 rounded">{layer.visible ? <IconEye className="w-4 h-4 text-primary" /> : <IconEyeSlash className="w-4 h-4 text-gray-400" />}</button>
                                 <div className="flex flex-col gap-0.5">
                                     <button onClick={(e) => { e.stopPropagation(); onMoveLayer(layer, 'up'); }} disabled={idx === 0} className="p-1 hover:bg-gray-200 rounded disabled:opacity-30"><IconChevronUp className="w-3 h-3" /></button>
@@ -41,10 +42,10 @@ export const LayerManager: React.FC<LayerManagerProps> = ({
                         {/* Opacity Slider */}
                         <div className="flex items-center gap-2 px-1">
                             <span className="text-[9px] font-bold text-gray-400 uppercase w-8">Opac.</span>
-                            <input 
-                                type="range" 
-                                min="0" max="1" step="0.1" 
-                                value={layer.opacity ?? 1} 
+                            <input
+                                type="range"
+                                min="0" max="1" step="0.1"
+                                value={layer.opacity ?? 1}
                                 onChange={(e) => onUpdateLayer(layer.id, { opacity: parseFloat(e.target.value) })}
                                 className="w-full h-1 bg-gray-300 dark:bg-gray-600 rounded-lg accent-primary cursor-pointer"
                             />

@@ -8,13 +8,14 @@ interface QuickLibraryBarProps {
     onDragStart: (e: React.DragEvent, item: LibraryItem) => void;
     onDrop: (item: LibraryItem, x: number, y: number) => void;
     onAddToCenter: (item: LibraryItem) => void; 
+    onAddToTopLeft?: (item: LibraryItem) => void;
     onRemoveItem: (id: string) => void; 
     onOpenLibrary: () => void;
     onImportImage: (file: File) => void; // New prop
 }
 
 export const QuickLibraryBar: React.FC<QuickLibraryBarProps> = ({ 
-    items, onDragStart, onDrop, onAddToCenter, onRemoveItem, onOpenLibrary, onImportImage 
+    items, onDragStart, onDrop, onAddToCenter, onAddToTopLeft, onRemoveItem, onOpenLibrary, onImportImage 
 }) => {
     const scrollRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -108,10 +109,21 @@ export const QuickLibraryBar: React.FC<QuickLibraryBarProps> = ({
                                 {item.type === 'group' ? <IconGroup className="w-6 h-6"/> : <IconImage className="w-6 h-6"/>}
                             </div>
                         )}
+                        {/* Badge to indicate this library item is a slide/page */}
+                        {item.type === 'page' && (
+                            <div className="absolute -bottom-2 -left-2 bg-primary text-white text-[10px] px-1 py-0.5 rounded-md shadow z-20" title="Diapositiva">SL</div>
+                        )}
                         
                         {/* Overlay Buttons */}
                         <button 
-                            onClick={(e) => { e.stopPropagation(); onAddToCenter(item); }}
+                            onClick={(e) => { e.stopPropagation();
+                                // If caller provided a top-left handler and this is a page, use it
+                                if (item.type === 'page' && typeof onAddToTopLeft === 'function') {
+                                    onAddToTopLeft(item);
+                                } else {
+                                    onAddToCenter(item);
+                                }
+                            }}
                             className="absolute -top-2 -left-2 w-5 h-5 bg-green-500 hover:bg-green-600 text-white rounded-full flex items-center justify-center shadow-md opacity-0 group-hover:opacity-100 active:opacity-100 transition-opacity z-10"
                             title="Añadir al centro"
                         >

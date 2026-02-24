@@ -217,6 +217,14 @@ export const TextToolbar: React.FC<TextToolbarProps> = ({
                             </div>
                         )}
                     </div>
+                    {/* Toggle: permitir copia (visible para profesores que usan el editor) */}
+                    <button
+                        onClick={() => onUpdate({ allowCopy: !(text.allowCopy ?? true) })}
+                        className={`p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded ${text.allowCopy === false ? 'text-gray-400' : 'text-green-500'}`}
+                        title={text.allowCopy === false ? 'Copiar deshabilitado' : 'Permitir copiar'}
+                    >
+                        <IconClipboardCopy className="w-4 h-4"/>
+                    </button>
 
                     <button onClick={onCopy} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded text-blue-500" title="Copiar"><IconClipboardCopy className="w-4 h-4"/></button>
                     <button onClick={onDelete} className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/30 rounded text-red-500" title="Eliminar"><IconTrash className="w-4 h-4"/></button>

@@ -159,32 +159,43 @@ export const BoardLayers = React.memo((props: BoardLayersProps) => {
                                                     overflowY: 'auto',
                                                     overflowX: 'hidden',
                                                     cursor: isTeacher && tool === 'move' ? 'move' : (isTeacher && tool === 'text' ? 'text' : 'default'),
-                                                    userSelect: 'text',
-                                                    WebkitUserSelect: 'text',
+                                                        // Respetar allowCopy: si está explícitamente en false, deshabilitamos selección y copia
+                                                        userSelect: (txt.allowCopy === false) ? 'none' : 'text',
+                                                        WebkitUserSelect: (txt.allowCopy === false) ? 'none' : 'text',
                                                     display: 'flex',
                                                     flexDirection: 'column',
                                                     justifyContent: txt.verticalAlign === 'middle' ? 'center' : txt.verticalAlign === 'bottom' ? 'flex-end' : 'flex-start'
                                                 }}
                                                 dangerouslySetInnerHTML={{ __html: txt.content }}
                                             />
-                                            <button
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    const tempDiv = document.createElement("div");
-                                                    tempDiv.innerHTML = txt.content;
-                                                    const textToCopy = tempDiv.innerText || tempDiv.textContent || "";
-                                                    navigator.clipboard.writeText(textToCopy);
+                                            {txt.allowCopy !== false && (
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        const tempDiv = document.createElement("div");
+                                                        tempDiv.innerHTML = txt.content;
+                                                        const textToCopy = tempDiv.innerText || tempDiv.textContent || "";
+                                                        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(textToCopy);
+                                                        else {
+                                                            const ta = document.createElement('textarea');
+                                                            ta.value = textToCopy;
+                                                            document.body.appendChild(ta);
+                                                            ta.select();
+                                                            document.execCommand('copy');
+                                                            document.body.removeChild(ta);
+                                                        }
 
-                                                    const btn = e.currentTarget;
-                                                    const originalColor = btn.style.color;
-                                                    btn.style.color = '#10b981'; // temporal green
-                                                    setTimeout(() => { btn.style.color = originalColor; }, 1000);
-                                                }}
-                                                className="absolute top-2 right-2 p-1.5 bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-md shadow-sm border border-gray-200 dark:border-gray-700 text-gray-500 hover:text-primary transition-all opacity-40 hover:opacity-100 z-10"
-                                                title="Copiar texto"
-                                            >
-                                                <IconClipboardCopy className="w-4 h-4" />
-                                            </button>
+                                                        const btn = e.currentTarget as HTMLElement;
+                                                        const originalColor = btn.style.color;
+                                                        btn.style.color = '#10b981'; // temporal green
+                                                        setTimeout(() => { btn.style.color = originalColor; }, 1000);
+                                                    }}
+                                                    className="absolute top-2 right-2 p-1.5 bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-md shadow-sm border border-gray-200 dark:border-gray-700 text-gray-500 hover:text-primary transition-all opacity-40 hover:opacity-100 z-10"
+                                                    title="Copiar texto"
+                                                >
+                                                    <IconClipboardCopy className="w-4 h-4" />
+                                                </button>
+                                            )}
                                         </div>
                                     </foreignObject>
 

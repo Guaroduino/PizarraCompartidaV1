@@ -36,6 +36,7 @@ interface UseWhiteboardGesturesProps {
     transformMode: 'drag' | 'resize' | 'rotate' | 'crop-handle' | 'strokes-drag' | 'strokes-resize' | 'strokes-rotate' | 'strokes-move' | null;
     drawStyle?: DrawStyle;
     activeStrokes: WhiteboardStroke[];
+    lockedLayerIds: Set<string>;
 }
 
 export const useWhiteboardGestures = ({
@@ -43,7 +44,7 @@ export const useWhiteboardGestures = ({
     setLassoPoints, setSelectedId, setSelectedType, setTransformMode, selectedId, isCropMode,
     activeImages, activeTexts, setImages, setTexts, strokeSelectionBounds, selectedStrokeIds,
     initialTransformParams, tempStrokeTransform, setTempStrokeTransform, finalizeStrokeTransform,
-    lassoPoints, onLassoEnd, updateItemInFirestore, transformMode, drawStyle = 'ink', activeStrokes
+    lassoPoints, onLassoEnd, updateItemInFirestore, transformMode, drawStyle = 'ink', activeStrokes, lockedLayerIds
 }: UseWhiteboardGesturesProps) => {
 
     const [currentStroke, setCurrentStroke] = useState<Point[] | null>(null);
@@ -62,6 +63,10 @@ export const useWhiteboardGestures = ({
     const lastDrawPoint = useRef<{ x: number, y: number, time: number } | null>(null);
     const isDrawing = useRef(false);
     const rafRef = useRef<number | null>(null);
+
+    // Middle-button panning (mouse)
+    const middlePan = useRef(false);
+    const lastMiddlePoint = useRef<{ x: number, y: number } | null>(null);
 
     const shapeStartPoint = useRef<Point | null>(null);
     const polylinePoints = useRef<Point[]>([]);
@@ -99,6 +104,19 @@ export const useWhiteboardGestures = ({
             (e.currentTarget as Element).setPointerCapture(e.pointerId);
         }
 
+        // Middle mouse button? start panning mode
+        // e.button === 1 indicates middle button for PointerEvent
+        // Only enable for mouse pointers
+        // Note: keep this early so middle-click doesn't start drawing/etc.
+        // (React's PointerEvent has .button)
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore
+        if (e.pointerType === 'mouse' && (e as any).button === 1) {
+            if (isNavLocked) return;
+            middlePan.current = true;
+            lastMiddlePoint.current = { x: e.clientX, y: e.clientY };
+            return;
+        }
         // CHECK FOR MULTI-TOUCH GESTURE
         if (activePointers.current.size === 2) {
             isDrawing.current = false;
@@ -273,9 +291,11 @@ export const useWhiteboardGestures = ({
                 return;
             }
             if (!isCropMode) {
-                const clickedText = [...activeTexts].reverse().find(txt => x >= txt.x && x <= txt.x + txt.width && y >= txt.y && y <= txt.y + txt.height);
+                const selectableTexts = activeTexts.filter(t => !lockedLayerIds.has(t.layerId || ''));
+                const clickedText = [...selectableTexts].reverse().find(txt => x >= txt.x && x <= txt.x + txt.width && y >= txt.y && y <= txt.y + txt.height);
                 if (clickedText) { setSelectedId(clickedText.id); setSelectedType('text'); setTransformMode('drag'); return; }
-                const clickedImg = [...activeImages].reverse().find(img => x >= img.x && x <= img.x + img.width && y >= img.y && y <= img.y + img.height);
+                const selectableImages = activeImages.filter(i => !lockedLayerIds.has(i.layerId || ''));
+                const clickedImg = [...selectableImages].reverse().find(img => x >= img.x && x <= img.x + img.width && y >= img.y && y <= img.y + img.height);
                 if (clickedImg) { setSelectedId(clickedImg.id); setSelectedType('image'); setTransformMode('drag'); return; }
 
                 setSelectedId(null); setSelectedType(null);
@@ -296,6 +316,20 @@ export const useWhiteboardGestures = ({
     const handlePointerMove = (e: React.PointerEvent) => {
         if (activePointers.current.has(e.pointerId)) {
             activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
+        }
+
+        // Middle-button panning (mouse)
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore
+        if (middlePan.current && e.pointerType === 'mouse') {
+            const last = lastMiddlePoint.current;
+            if (!last) return;
+            const dx = e.clientX - last.x;
+            const dy = e.clientY - last.y;
+            lastMiddlePoint.current = { x: e.clientX, y: e.clientY };
+            if (isNavLocked) return;
+            setCamera(prev => ({ x: prev.x + dx, y: prev.y + dy, scale: prev.scale }));
+            return;
         }
 
         if (activePointers.current.size === 2) {
@@ -443,6 +477,16 @@ export const useWhiteboardGestures = ({
     const handlePointerUp = async (e: React.PointerEvent) => {
         activePointers.current.delete(e.pointerId);
 
+        // End middle-button panning if it was active
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore
+        if (middlePan.current && e.pointerType === 'mouse' && (e as any).button === 1) {
+            middlePan.current = false;
+            lastMiddlePoint.current = null;
+            setIsInteracting(false);
+            return;
+        }
+
         if (activePointers.current.size < 2) {
             gestureStart.current = null;
         }
@@ -509,6 +553,11 @@ export const useWhiteboardGestures = ({
         if (activePointers.current.size < 2) {
             gestureStart.current = null;
         }
+        if (middlePan.current) {
+            middlePan.current = false;
+            lastMiddlePoint.current = null;
+        }
+
         if (activePointers.current.size === 0) {
             isDrawing.current = false;
             setCurrentStroke(null);

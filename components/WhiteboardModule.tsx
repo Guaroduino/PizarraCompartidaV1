@@ -61,6 +61,10 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
     const [fillColor, setFillColor] = useState<string>(savedPrefs.fillColor || '#e2e8f0');
     const [isFilled, setIsFilled] = useState<boolean>(savedPrefs.isFilled ?? false);
     const [isStroked, setIsStroked] = useState<boolean>(savedPrefs.isStroked ?? true);
+    // Drag & drop reordering helpers for boards
+    const draggedBoardIdRef = useRef<string | null>(null);
+    // Drag & drop reordering helpers for pages (diapositivas)
+    const draggedPageIdRef = useRef<string | null>(null);
 
     const [presets, setPresets] = useState<ToolPreset[]>(() => {
         if (user?.whiteboardPresets && user.whiteboardPresets.length > 0) {
@@ -210,11 +214,214 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
         boardSettings, updateBoardSettings,
         isSyncing, setIsSyncing,
         exportBoard, importBoard,
-        saveBoardToLibrary, loadBoardFromLibrary,
+    saveBoardToLibrary, savePageToLibrary, loadBoardFromLibrary,
         courseTitle,
         courseCode,
         syncEnabled, toggleGlobalSync
     } = useWhiteboardSync(user, isTeacher, courseId, isFollowingTeacher);
+
+    // Sorted boards with fallback: use explicit `order` if present, otherwise timestamp
+    const sortedBoards = useMemo(() => {
+        const raw = boards || [];
+        return [...raw].sort((a, b) => {
+            const aKey = (a as any).order ?? a.timestamp ?? 0;
+            const bKey = (b as any).order ?? b.timestamp ?? 0;
+            return aKey - bKey;
+        });
+    }, [boards]);
+
+    // Drag & drop handlers for reordering boards
+    const handleDragStartBoard = (e: React.DragEvent, boardId: string) => {
+        draggedBoardIdRef.current = boardId;
+        try { e.dataTransfer?.setData('text/plain', boardId); } catch (e) {}
+        e.dataTransfer!.effectAllowed = 'move';
+    };
+
+    const handleDragStartPage = (e: React.DragEvent, pageId: string) => {
+        draggedPageIdRef.current = pageId;
+        try { e.dataTransfer?.setData('text/plain', pageId); } catch (e) {}
+        e.dataTransfer!.effectAllowed = 'move';
+    };
+
+    const handleDragOverBoard = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.dataTransfer!.dropEffect = 'move';
+    };
+
+    const handleDragOverPage = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.dataTransfer!.dropEffect = 'move';
+    };
+
+    const handleDropOnIndex = async (e: React.DragEvent, targetIndex: number) => {
+        e.preventDefault();
+        const draggedId = draggedBoardIdRef.current || e.dataTransfer?.getData('text/plain');
+        if (!draggedId) return;
+        const currentIndex = sortedBoards.findIndex(b => b.id === draggedId);
+        if (currentIndex === -1) return;
+
+        // Build new order array
+        const newOrderList = [...sortedBoards];
+        const [dragged] = newOrderList.splice(currentIndex, 1);
+        // Adjust targetIndex if dragging forward
+        const insertIndex = targetIndex > currentIndex ? targetIndex - 1 : targetIndex;
+        newOrderList.splice(insertIndex, 0, dragged);
+
+        // Persist orders as sequential integers
+        const batch = writeBatch(db);
+        newOrderList.forEach((b, i) => {
+            if (!b.id) return;
+            batch.update(doc(db, 'whiteboardBoards', b.id), { order: i });
+        });
+        try {
+            await batch.commit();
+        } catch (err) {
+            console.error('Error reordering boards:', err);
+        }
+        draggedBoardIdRef.current = null;
+    };
+
+    const handleDropOnPageIndex = async (e: React.DragEvent, targetIndex: number) => {
+        e.preventDefault();
+        const draggedId = draggedPageIdRef.current || e.dataTransfer?.getData('text/plain');
+        if (!draggedId) return;
+        const currentIndex = pages.findIndex(p => p.id === draggedId);
+        if (currentIndex === -1) return;
+
+        const newOrderList = [...pages];
+        const [dragged] = newOrderList.splice(currentIndex, 1);
+        const insertIndex = targetIndex > currentIndex ? targetIndex - 1 : targetIndex;
+        newOrderList.splice(insertIndex, 0, dragged);
+
+        const batch = writeBatch(db);
+        newOrderList.forEach((p, i) => {
+            if (!p.id) return;
+            batch.update(doc(db, 'whiteboardPages', p.id), { order: i });
+        });
+        try {
+            await batch.commit();
+        } catch (err) {
+            console.error('Error reordering pages:', err);
+        }
+        draggedPageIdRef.current = null;
+    };
+
+    const addBoardAtIndex = async (index: number) => {
+        if (!courseId) return;
+        const name = prompt('Nombre de la nueva clase:');
+        if (!name) return;
+
+        const newList = [...sortedBoards];
+        // Insert placeholder for new board to compute orders
+        newList.splice(index, 0, { id: 'temp_new' } as any);
+
+        const batch = writeBatch(db);
+        // Update existing boards order
+        newList.forEach((b, i) => {
+            if (!b.id || b.id === 'temp_new') return;
+            batch.update(doc(db, 'whiteboardBoards', b.id), { order: i });
+        });
+
+        // Create new board with specific order
+        const newRef = doc(collection(db, 'whiteboardBoards'));
+        batch.set(newRef, { name, courseId, timestamp: Date.now(), order: index });
+
+        try {
+            await batch.commit();
+            setActiveBoardId(newRef.id);
+        } catch (err) {
+            console.error('Error adding board at index:', err);
+        }
+    };
+
+    const addPageAtIndex = async (index: number) => {
+        if (!activeBoardId) return;
+        const name = prompt('Añadir nueva pizarra (diapositiva) - nombre opcional:');
+
+        const newList = [...pages];
+        newList.splice(index, 0, { id: 'temp_new' } as any);
+
+        const batch = writeBatch(db);
+        newList.forEach((p, i) => {
+            if (!p.id || p.id === 'temp_new') return;
+            batch.update(doc(db, 'whiteboardPages', p.id), { order: i });
+        });
+
+    const newRef = doc(collection(db, 'whiteboardPages'));
+    const pagePayload: any = { boardId: activeBoardId, order: index, timestamp: Date.now() };
+    if (name) pagePayload.name = name;
+    batch.set(newRef, pagePayload);
+
+        try {
+            await batch.commit();
+            setActivePageId(newRef.id);
+        } catch (err) {
+            console.error('Error adding page at index:', err);
+        }
+    };
+
+    const handleSavePageToLibrary = async (pageId: string) => {
+        if (!isTeacher || !user) return;
+        const name = prompt('Nombre para guardar la diapositiva en la librería:', `Diapositiva ${pages.findIndex(p => p.id === pageId) + 1}`);
+        if (!name) return;
+        try {
+            await savePageToLibrary(pageId, user.uid, name);
+            alert('Diapositiva guardada en la librería.');
+        } catch (e) {
+            console.error('Error guardando diapositiva en librería:', e);
+            alert('Error al guardar la diapositiva.');
+        }
+    };
+
+    const handleDownloadPageAsJpeg = async (pageId: string) => {
+        try {
+            // Fetch content for that page
+            const strokesSnap = await getDocs(query(collection(db, 'whiteboardStrokes'), where('pageId', '==', pageId)));
+            const imagesSnap = await getDocs(query(collection(db, 'whiteboardImages'), where('pageId', '==', pageId)));
+            const textsSnap = await getDocs(query(collection(db, 'whiteboardTexts'), where('pageId', '==', pageId)));
+
+            const strokesData = strokesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+            const imagesData = imagesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+            const textsData = textsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+            const normalized = normalizeItems(strokesData as any, imagesData as any, textsData as any);
+            if (!normalized) { alert('Diapositiva vacía. Nada que descargar.'); return; }
+
+            const svgDataUri = generateThumbnailSvg(normalized.data, normalized.width || 800, normalized.height || 600);
+
+            await new Promise<void>((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const scale = 2; // improve resolution
+                    canvas.width = (normalized.width + 20) * scale;
+                    canvas.height = (normalized.height + 20) * scale;
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) { reject(new Error('Canvas no soportado')); return; }
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+                    const a = document.createElement('a');
+                    const pageObj = pages.find(p => p.id === pageId);
+                    const name = pageObj && (pageObj as any).name ? (pageObj as any).name : `diapositiva_${pageId}`;
+                    a.href = dataUrl;
+                    a.download = `${name.replace(/\s+/g, '_')}.jpg`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    resolve();
+                };
+                img.onerror = (err) => reject(err);
+                img.src = svgDataUri;
+            });
+
+        } catch (err) {
+            console.error('Error descargando la diapositiva:', err);
+            alert('Error al generar la imagen.');
+        }
+    };
+
 
     const { undo, redo, recordAction, historyIndex, redoStack, clearHistory } = useWhiteboardHistory(setIsSyncing);
 
@@ -273,6 +480,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
     }, [activeBoardId, boardSettings.width, boardSettings.height, isSidePanelOpen]);
 
     const visibleLayerIds = useMemo(() => new Set(layers.filter(l => l.visible).map(l => l.id)), [layers]);
+    const lockedLayerIds = useMemo(() => new Set(layers.filter(l => l.locked).map(l => l.id)), [layers]);
 
     const activeStrokes = useMemo(() => {
         const allStrokes = [...strokes, ...pendingStrokes];
@@ -380,6 +588,25 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
         onDeleteStrokes: handleDeleteStrokes
     });
 
+    // Clear selection if an item's layer becomes locked
+    useEffect(() => {
+        if (selectedId) {
+            const itemLayerId = activeImages.find(i => i.id === selectedId)?.layerId || activeTexts.find(t => t.id === selectedId)?.layerId;
+            if (itemLayerId && lockedLayerIds.has(itemLayerId)) {
+                setSelectedId(null);
+                setTransformMode(null);
+            }
+        }
+        if (selectedStrokeIds.length > 0) {
+            const hasLockedSelectedStrokes = activeStrokes.some(s => selectedStrokeIds.includes(s.id) && lockedLayerIds.has(s.layerId || ''));
+            if (hasLockedSelectedStrokes) {
+                setSelectedStrokeIds([]);
+                setStrokeSelectionBounds(null);
+                setTransformMode(null);
+            }
+        }
+    }, [lockedLayerIds, selectedId, selectedStrokeIds, activeImages, activeTexts, activeStrokes, setSelectedId, setTransformMode, setSelectedStrokeIds, setStrokeSelectionBounds]);
+
     const screenToWorld = useCallback((clientX: number, clientY: number) => {
         if (!svgRef.current) return { x: 0, y: 0 };
         const ctm = svgRef.current.getScreenCTM();
@@ -462,7 +689,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
     };
 
     const handleLassoEnd = (closedLoop: Point[]) => {
-        const selected = activeStrokes.filter(s => s.points.some(p => isPointInPolygon(p, closedLoop)));
+        const selected = activeStrokes.filter(s => !lockedLayerIds.has(s.layerId || '') && s.points.some(p => isPointInPolygon(p, closedLoop)));
         const newSelectedIds = selected.map(s => s.id);
 
         const groupIds = new Set(selected.map(s => s.groupId).filter(Boolean));
@@ -492,7 +719,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
         setSelectedId, setSelectedType, setTransformMode, selectedId, isCropMode,
         activeImages: localImages, activeTexts: localTexts, setImages: setLocalImages, setTexts: setLocalTexts,
         strokeSelectionBounds, selectedStrokeIds, initialTransformParams, tempStrokeTransform, setTempStrokeTransform, finalizeStrokeTransform,
-        onLassoEnd: handleLassoEnd, updateItemInFirestore: handleUpdateFirestore, transformMode, drawStyle, activeStrokes
+        onLassoEnd: handleLassoEnd, updateItemInFirestore: handleUpdateFirestore, transformMode, drawStyle, activeStrokes, lockedLayerIds
     });
 
     // ... (Library and Import functions omitted for brevity, keeping same logic as before) ...
@@ -635,6 +862,21 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
         const x = centerX - 100;
         const y = centerY - 100;
         await handleLibraryItemDrop(item, x, y, true);
+    };
+
+    const handleAddItemToTopLeft = async (item: LibraryItem) => {
+        if (!activeBoardId || !activePageId || !containerRef.current) return;
+        // place near top-left of the visible canvas area with a small margin
+        try {
+            const rect = containerRef.current.getBoundingClientRect();
+            const clientX = rect.left + 40;
+            const clientY = rect.top + 40;
+            const { x, y } = screenToWorld(clientX, clientY);
+            // small offset so item is fully visible
+            await handleLibraryItemDrop(item, x, y, false);
+        } catch (e) {
+            console.error('Error adding item to top-left:', e);
+        }
     };
 
     const handleLibraryManualDrop = async (item: LibraryItem, clientX: number, clientY: number) => {
@@ -893,12 +1135,47 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
         setCamera({ scale: newScale, x: (dimensions.width - boardSettings.width * newScale) / 2, y: (dimensions.height - boardSettings.height * newScale) / 2 });
     };
 
+    // Use a ref to always read latest camera inside native wheel handler
+    const cameraRef = useRef(camera);
+    useEffect(() => { cameraRef.current = camera; }, [camera]);
+
+    // Attach a native wheel listener with passive: false to allow preventDefault
+    useEffect(() => {
+        const node = svgRef.current;
+        if (!node) return;
+
+        const wheelHandler = (ev: WheelEvent) => {
+            // preventDefault must be allowed (listener added with passive: false)
+            try { ev.preventDefault(); } catch (e) { /* ignore */ }
+            if (isNavLocked) return;
+
+            const delta = ev.deltaY;
+            const zoomIntensity = 0.0016;
+            const cur = cameraRef.current;
+            const newScale = Math.min(10, Math.max(0.1, cur.scale * Math.exp(-delta * zoomIntensity)));
+
+            const clientX = ev.clientX;
+            const clientY = ev.clientY;
+            const worldX = (clientX - cur.x) / cur.scale;
+            const worldY = (clientY - cur.y) / cur.scale;
+
+            const newX = clientX - worldX * newScale;
+            const newY = clientY - worldY * newScale;
+            setCamera({ x: newX, y: newY, scale: newScale });
+        };
+
+        node.addEventListener('wheel', wheelHandler, { passive: false });
+        return () => node.removeEventListener('wheel', wheelHandler as EventListener);
+    }, [svgRef, isNavLocked, setCamera]);
+
     const handleAddText = async (x: number, y: number) => {
         if (!isTeacher || !activeBoardId || !activePageId) return;
         const textData = {
             boardId: activeBoardId, pageId: activePageId, layerId: activeLayerId, keyframeId: activeKeyframeId,
             content: 'Texto nuevo', x: x - 100, y: y - 25, width: 200, height: 50, rotation: 0, zIndex: texts.length,
-            timestamp: Date.now(), deleted: false, color: '#000000', fontSize: 24, textAlign: 'left' as const, fontFamily: 'sans' as const, backgroundColor: 'white', borderColor: '#d1d5db'
+            timestamp: Date.now(), deleted: false, color: '#000000', fontSize: 24, textAlign: 'left' as const, fontFamily: 'sans' as const, backgroundColor: 'white', borderColor: '#d1d5db',
+            // Nuevo: por defecto permitimos copiar el texto
+            allowCopy: true
         };
         if (isSyncPaused) {
             const tempId = `temp_text_${Date.now()}`;
@@ -951,6 +1228,24 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
         }
         handlePointerDown(e);
     }
+
+    // Keyboard shortcuts: Ctrl/Cmd+Z => undo, Ctrl/Cmd+Y or Ctrl+Shift+Z => redo
+    useEffect(() => {
+        const onKey = (ev: KeyboardEvent) => {
+            const mod = ev.ctrlKey || ev.metaKey;
+            if (!mod) return;
+            const key = ev.key.toLowerCase();
+            if (key === 'z' && !ev.shiftKey) {
+                ev.preventDefault();
+                try { undo(); } catch (e) { console.error(e); }
+            } else if (key === 'y' || (key === 'z' && ev.shiftKey)) {
+                ev.preventDefault();
+                try { redo(); } catch (e) { console.error(e); }
+            }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [undo, redo]);
 
     const handleImageProcessed = async (processedBlob: Blob, teacherOnly: boolean) => {
         if (!activeBoardId || !activePageId) return;
@@ -1076,16 +1371,29 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
             {showBoardTabs && (isTeacher || !syncEnabled) && (
                 <div className="flex-none h-12 bg-gray-200 dark:bg-gray-800 flex items-center px-2 border-b border-gray-300 dark:border-gray-700 rounded-t-2xl justify-between">
                     <div className="flex items-center gap-1 overflow-x-auto flex-1 pr-4 no-scrollbar">
-                        {boards.map(board => (
+                        {sortedBoards.map((board, idx) => (
                             <div
                                 key={board.id}
+                                draggable={isTeacher}
+                                onDragStart={(e) => { if (isTeacher && board.id) handleDragStartBoard(e, board.id); }}
+                                onDragOver={(e) => { if (isTeacher) handleDragOverBoard(e); }}
+                                onDrop={(e) => { if (isTeacher) handleDropOnIndex(e, idx); }}
                                 onClick={() => setActiveBoardId(board.id)}
                                 className={`group flex items-center gap-2 px-3 py-1.5 rounded-t-lg cursor-pointer text-xs font-bold transition-all select-none min-w-[100px] max-w-[200px] h-full border-b-2 ${activeBoardId === board.id ? 'bg-white dark:bg-black text-primary border-primary' : 'bg-transparent text-gray-500 hover:bg-gray-300 dark:hover:bg-gray-700 hover:text-gray-700 border-transparent'}`}
                             >
                                 <span className="truncate flex-grow">{board.name}</span>
+
+                                {/* Add before / after buttons (teacher only) */}
+                                {isTeacher && (
+                                    <>
+                                        <button onClick={(e) => { e.stopPropagation(); addBoardAtIndex(idx); }} className="p-0.5 rounded-full hover:bg-gray-100 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" title="Agregar antes"><IconPlus className="w-3 h-3" /></button>
+                                        <button onClick={(e) => { e.stopPropagation(); addBoardAtIndex(idx + 1); }} className="p-0.5 rounded-full hover:bg-gray-100 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" title="Agregar después"><IconPlus className="w-3 h-3" /></button>
+                                    </>
+                                )}
+
                                 {isTeacher && activeBoardId === board.id && (<button onClick={(e) => { e.stopPropagation(); exportBoard(board.id); }} className="p-0.5 rounded-full hover:bg-blue-100 text-gray-400 hover:text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity" title="Descargar"><IconDownload className="w-3 h-3" /></button>)}
                                 {isTeacher && activeBoardId === board.id && (<button onClick={(e) => { e.stopPropagation(); handleSaveBoardAsClass(); }} className="p-0.5 rounded-full hover:bg-green-100 text-gray-400 hover:text-green-500 opacity-0 group-hover:opacity-100 transition-opacity" title="Guardar en Librería"><IconBook className="w-3 h-3" /></button>)}
-                                {isTeacher && activeBoardId === board.id && boards.length > 1 && (<button onClick={(e) => { e.stopPropagation(); handleDeleteBoard(board.id); }} className="p-0.5 rounded-full hover:bg-red-100 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" title="Borrar"><IconX className="w-3 h-3" /></button>)}
+                                {isTeacher && activeBoardId === board.id && sortedBoards.length > 1 && (<button onClick={(e) => { e.stopPropagation(); handleDeleteBoard(board.id); }} className="p-0.5 rounded-full hover:bg-red-100 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" title="Borrar"><IconX className="w-3 h-3" /></button>)}
                             </div>
                         ))}
                     </div>
@@ -1129,7 +1437,34 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                         layers={layers}
                         onUpdate={(updates) => handleUpdateText(editingTextId, updates)}
                         onClose={() => setEditingTextId(null)}
-                        onCopy={() => { }}
+                        onCopy={() => {
+                            // Respetar flag allowCopy
+                            const txt = editingTextObject;
+                            if (!txt) return;
+                            if (txt.allowCopy === false) {
+                                // Indicamos al profesor que la copia está deshabilitada
+                                alert('Copiar deshabilitado para este texto.');
+                                return;
+                            }
+                            try {
+                                const temp = document.createElement('div');
+                                temp.innerHTML = txt.content || '';
+                                const textToCopy = temp.innerText || temp.textContent || '';
+                                if (navigator.clipboard && navigator.clipboard.writeText) {
+                                    navigator.clipboard.writeText(textToCopy);
+                                } else {
+                                    // Fallback
+                                    const ta = document.createElement('textarea');
+                                    ta.value = textToCopy;
+                                    document.body.appendChild(ta);
+                                    ta.select();
+                                    document.execCommand('copy');
+                                    document.body.removeChild(ta);
+                                }
+                            } catch (e) {
+                                console.error('Error copiando texto:', e);
+                            }
+                        }}
                         onCut={() => { }}
                         onDelete={() => {
                             if (editingTextId.startsWith('temp_')) {
@@ -1396,8 +1731,37 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                         <button onClick={() => { const idx = pages.findIndex(p => p.id === activePageId); if (idx > 0) setActivePageId(pages[idx - 1].id); }} disabled={pages.length === 0 || pages[0].id === activePageId} className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-800 rounded-lg text-gray-500 disabled:opacity-30 disabled:hover:bg-transparent flex-shrink-0" title="Pizarra Anterior"><IconChevronUp className="w-5 h-5 -rotate-90" /></button>
                         <div className="flex-1 overflow-x-auto flex gap-2 py-2 scrollbar-hide items-center min-w-0" ref={pagesListRef}>
                             {pages.map((page, idx) => (
-                                <div key={page.id} data-page-id={page.id} onClick={() => setActivePageId(page.id)} className={`group relative flex-shrink-0 w-20 h-10 rounded-lg border-2 cursor-pointer transition-all flex items-center justify-center bg-white dark:bg-black ${activePageId === page.id ? 'border-primary ring-2 ring-primary/30' : 'border-gray-300 dark:border-gray-600 hover:border-gray-400'}`}>
+                                <div
+                                    key={page.id}
+                                    data-page-id={page.id}
+                                    onClick={() => setActivePageId(page.id)}
+                                    draggable={isTeacher}
+                                    onDragStart={(e) => { if (isTeacher) handleDragStartPage(e, page.id); }}
+                                    onDragOver={(e) => { if (isTeacher) handleDragOverPage(e); }}
+                                    onDrop={(e) => { if (isTeacher) handleDropOnPageIndex(e, idx); }}
+                                    onDragEnd={() => { draggedPageIdRef.current = null; }}
+                                    className={`group relative flex-shrink-0 w-20 h-10 rounded-lg border-2 cursor-pointer transition-all flex items-center justify-center bg-white dark:bg-black ${activePageId === page.id ? 'border-primary ring-2 ring-primary/30' : 'border-gray-300 dark:border-gray-600 hover:border-gray-400'}`}
+                                >
                                     <span className={`text-xs font-bold ${activePageId === page.id ? 'text-primary' : 'text-gray-500'}`}>{idx + 1}</span>
+
+                                    {/* Add-before / Add-after buttons for teachers */}
+                                    {isTeacher && (
+                                        <>
+                                            <button onClick={(e) => { e.stopPropagation(); addPageAtIndex(idx); }} title="Agregar antes" className="absolute -left-3 top-1/2 -translate-y-1/2 bg-white dark:bg-gray-800 border rounded-full p-0.5 shadow text-gray-500 hover:text-primary hover:scale-110"><IconPlus className="w-3 h-3" /></button>
+                                            <button onClick={(e) => { e.stopPropagation(); addPageAtIndex(idx + 1); }} title="Agregar después" className="absolute -right-3 top-1/2 -translate-y-1/2 bg-white dark:bg-gray-800 border rounded-full p-0.5 shadow text-gray-500 hover:text-primary hover:scale-110"><IconPlus className="w-3 h-3" /></button>
+                                        </>
+                                    )}
+
+                                    {/* Save to library (top-left) - only show when page is active */}
+                                    {isTeacher && activePageId === page.id && (
+                                        <button onClick={(e) => { e.stopPropagation(); handleSavePageToLibrary(page.id); }} title="Guardar diapositiva en librería" className="absolute -top-2 -left-2 bg-white dark:bg-gray-800 border rounded-full p-0.5 shadow text-purple-600 hover:text-purple-800 z-10 transition-transform hover:scale-110"><IconLibrary className="w-3 h-3" /></button>
+                                    )}
+
+                                    {/* Download as JPG (bottom-right) - only show when page is active */}
+                                    {isTeacher && activePageId === page.id && (
+                                        <button onClick={(e) => { e.stopPropagation(); handleDownloadPageAsJpeg(page.id); }} title="Descargar como JPG" className="absolute -bottom-2 -right-2 bg-white dark:bg-gray-800 border rounded-full p-0.5 shadow text-gray-600 hover:text-primary z-10 transition-transform hover:scale-110"><IconDownload className="w-3 h-3" /></button>
+                                    )}
+
                                     {isTeacher && activePageId === page.id && pages.length > 1 && (
                                         <button onClick={(e) => { e.stopPropagation(); deletePage(page.id); }} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5 shadow-md hover:bg-red-600 z-10 transition-transform hover:scale-110"><IconX className="w-3 h-3" /></button>
                                     )}
@@ -1415,6 +1779,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                                 onDragStart={handleLibraryDragStart}
                                 onDrop={handleLibraryManualDrop}
                                 onAddToCenter={(item) => handleAddItemToCanvas(item)}
+                                onAddToTopLeft={(item) => handleAddItemToTopLeft(item)}
                                 onRemoveItem={handleRemoveLibraryItem}
                                 onOpenLibrary={() => setShowLibraryManager(true)}
                                 onImportImage={(file) => setLibraryImportFile(file)}

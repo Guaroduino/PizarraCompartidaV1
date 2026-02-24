@@ -83,6 +83,11 @@ service cloud.firestore {
         allow write: if isTeacher();
       }
       
+      match /clipboard/{document=**} {
+        allow read: if isSignedIn();
+        allow write: if isTeacher();
+      }
+      
       allow update: if isTeacher();
     }
 

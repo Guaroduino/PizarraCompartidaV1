@@ -33,13 +33,18 @@ export const HtmlTextEditor: React.FC<HtmlTextEditorProps> = ({
     // Referencia mutable para el contenido, evita problemas de clausura en eventos
     const contentRef = useRef(text.content);
 
-    // Sincronizar contenido inicial
+    // Estado local para el texto (optimistic updates cuando se modifica desde la toolbar)
+    const [localText, setLocalText] = useState<ExtendedWhiteboardText>(text);
+
+    // Sincronizar contenido inicial y prop updates
     useEffect(() => {
         if (editorRef.current && editorRef.current.innerHTML !== text.content) {
             editorRef.current.innerHTML = text.content;
         }
         contentRef.current = text.content;
-    }, []); // Run once on mount
+        // Mantener localText sincronizado cuando cambian las props externas
+        setLocalText(text);
+    }, [text]);
 
     // Enfocar al montar
     useLayoutEffect(() => {
@@ -214,10 +219,11 @@ export const HtmlTextEditor: React.FC<HtmlTextEditorProps> = ({
 
                     <div className="bg-white/90 dark:bg-dark-card/90 backdrop-blur-md rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 animate-in slide-in-from-bottom-2">
                         <TextToolbar
-                            text={text}
+                            text={localText}
                             layers={layers}
                             onUpdate={(updates) => {
-                                // Actualizar props inmediatamente para feedback visual
+                                // Optimistic update for immediate feedback
+                                setLocalText(prev => ({ ...prev, ...updates } as ExtendedWhiteboardText));
                                 onUpdate(updates);
                             }}
                             onCopy={onCopy}
