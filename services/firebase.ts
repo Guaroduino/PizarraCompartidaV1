@@ -20,13 +20,13 @@ import { getStorage } from "firebase/storage";
 // El bloque que copies de Firebase se verá similar a este, pero con tus claves reales.
 // =================================================================================
 const firebaseConfig = {
-  apiKey: "AIzaSyAmOFTskhUF6AJ2gnVKr44z8mWBC86Uw_M",
-  authDomain: "whiteboard-1e52a.firebaseapp.com",
-  projectId: "whiteboard-1e52a",
-  storageBucket: "whiteboard-1e52a.firebasestorage.app",
-  messagingSenderId: "155805808515",
-  appId: "1:155805808515:web:c5072a390581448eece8b6",
-  measurementId: "G-CVMP60DWXB"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
 
