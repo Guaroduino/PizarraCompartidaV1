@@ -146,6 +146,9 @@ export interface WhiteboardText {
   groupId?: string;
   // Controla si el texto puede ser copiado desde la interfaz (true por defecto)
   allowCopy?: boolean;
+  textMode?: 'single' | 'multi' | 'code';
+  language?: string; // Language for Monaco Editor
+  codeTheme?: 'vs' | 'vs-dark' | 'hc-black'; // Code theme for Monaco Editor
 }
 
 // New: Library Item

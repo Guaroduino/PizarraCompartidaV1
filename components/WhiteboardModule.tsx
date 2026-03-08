@@ -18,7 +18,7 @@ import { useWhiteboardHistory } from '../hooks/useWhiteboardHistory';
 import { useWhiteboardSelection } from '../hooks/useWhiteboardSelection';
 import { useWhiteboardGestures } from '../hooks/useWhiteboardGestures';
 import ConfirmModal from './ConfirmModal';
-import { IconUndo, IconRedo, IconDeviceFloppy, IconHand, IconArrowsExpand, IconPlus, IconX, IconTrash, IconClipboardCopy, IconLayers, IconCrop, IconClipboard, IconArrowLeft, IconChevronUp, IconDownload, IconUpload, IconLockClosed, IconLockOpen, IconCloud, IconCloudOff, IconDashboard, IconLibrary, IconSwitchLocation, IconGroup, IconUngroup, IconCheck, IconBook, IconSidebar } from './Icons';
+import { IconUndo, IconRedo, IconDeviceFloppy, IconHand, IconArrowsExpand, IconPlus, IconX, IconTrash, IconClipboardCopy, IconLayers, IconCrop, IconClipboard, IconArrowLeft, IconChevronUp, IconDownload, IconUpload, IconLockClosed, IconLockOpen, IconCloud, IconCloudOff, IconDashboard, IconLibrary, IconSwitchLocation, IconGroup, IconUngroup, IconCheck, IconBook, IconSidebar, IconPencil } from './Icons';
 import type { ExtendedStrokeOptions, ExtendedWhiteboardText, ToolType, ToolPreset, DrawStyle, ShapeStyle } from '../types/whiteboardTypes';
 import { QuickLibraryBar } from './whiteboard/library/QuickLibraryBar';
 import { LibraryManager } from './whiteboard/library/LibraryManager';
@@ -1124,6 +1124,17 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
     const handlePrevKeyframe = () => { const idx = currentPageKeyframes.indexOf(activeKeyframeId); if (idx > 0) setActiveKeyframeId(currentPageKeyframes[idx - 1]); };
     const handleNextKeyframe = () => { const idx = currentPageKeyframes.indexOf(activeKeyframeId); if (idx < currentPageKeyframes.length - 1) setActiveKeyframeId(currentPageKeyframes[idx + 1]); };
 
+    const handleRenameBoard = async (boardId: string, currentName: string) => {
+        const newName = window.prompt("Nombre de la clase:", currentName);
+        if (newName && newName.trim() !== "" && newName !== currentName) {
+            try {
+                await updateDoc(doc(db, 'whiteboardBoards', boardId), { name: newName.trim() });
+            } catch (error) {
+                console.error("Error renaming board:", error);
+            }
+        }
+    };
+
     const handleDeleteBoard = (boardId: string) => { requestConfirm("¿Borrar Clase?", "Irreversible.", () => deleteBoard(boardId), true); };
     const handleDeleteLayer = (layerId: string) => { requestConfirm("¿Eliminar Capa?", "Irreversible.", () => deleteLayer(layerId), true); };
 
@@ -1379,21 +1390,28 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                                 onDragOver={(e) => { if (isTeacher) handleDragOverBoard(e); }}
                                 onDrop={(e) => { if (isTeacher) handleDropOnIndex(e, idx); }}
                                 onClick={() => setActiveBoardId(board.id)}
-                                className={`group flex items-center gap-2 px-3 py-1.5 rounded-t-lg cursor-pointer text-xs font-bold transition-all select-none min-w-[100px] max-w-[200px] h-full border-b-2 ${activeBoardId === board.id ? 'bg-white dark:bg-black text-primary border-primary' : 'bg-transparent text-gray-500 hover:bg-gray-300 dark:hover:bg-gray-700 hover:text-gray-700 border-transparent'}`}
+                                className={`group flex items-center gap-2 px-3 py-1.5 rounded-t-lg cursor-pointer text-xs font-bold transition-all select-none min-w-[120px] max-w-[350px] h-full border-b-2 ${activeBoardId === board.id ? 'bg-white dark:bg-black text-primary border-primary' : 'bg-transparent text-gray-500 hover:bg-gray-300 dark:hover:bg-gray-700 hover:text-gray-700 border-transparent'}`}
                             >
-                                <span className="truncate flex-grow">{board.name}</span>
+                                <span className="truncate flex-grow" title={board.name}>{board.name}</span>
 
-                                {/* Add before / after buttons (teacher only) */}
+                                {/* Acciones flotantes que aparecen al hacer hover (teacher only) */}
                                 {isTeacher && (
-                                    <>
-                                        <button onClick={(e) => { e.stopPropagation(); addBoardAtIndex(idx); }} className="p-0.5 rounded-full hover:bg-gray-100 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" title="Agregar antes"><IconPlus className="w-3 h-3" /></button>
-                                        <button onClick={(e) => { e.stopPropagation(); addBoardAtIndex(idx + 1); }} className="p-0.5 rounded-full hover:bg-gray-100 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" title="Agregar después"><IconPlus className="w-3 h-3" /></button>
-                                    </>
+                                    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                                        <button onClick={(e) => { e.stopPropagation(); addBoardAtIndex(idx); }} className="p-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400" title="Agregar antes"><IconPlus className="w-3 h-3" /></button>
+                                        <button onClick={(e) => { e.stopPropagation(); addBoardAtIndex(idx + 1); }} className="p-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400" title="Agregar después"><IconPlus className="w-3 h-3" /></button>
+                                        
+                                        {activeBoardId === board.id && (
+                                            <>
+                                                <button onClick={(e) => { e.stopPropagation(); handleRenameBoard(board.id, board.name); }} className="p-1 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/40 text-gray-400 hover:text-blue-500" title="Renombrar"><IconPencil className="w-3 h-3" /></button>
+                                                <button onClick={(e) => { e.stopPropagation(); exportBoard(board.id); }} className="p-1 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/40 text-gray-400 hover:text-blue-500" title="Descargar"><IconDownload className="w-3 h-3" /></button>
+                                                <button onClick={(e) => { e.stopPropagation(); handleSaveBoardAsClass(); }} className="p-1 rounded-md hover:bg-green-100 dark:hover:bg-green-900/40 text-gray-400 hover:text-green-500" title="Guardar en Librería"><IconBook className="w-3 h-3" /></button>
+                                                {sortedBoards.length > 1 && (
+                                                    <button onClick={(e) => { e.stopPropagation(); handleDeleteBoard(board.id); }} className="p-1 rounded-md hover:bg-red-100 dark:hover:bg-red-900/40 text-gray-400 hover:text-red-500" title="Borrar"><IconX className="w-3 h-3" /></button>
+                                                )}
+                                            </>
+                                        )}
+                                    </div>
                                 )}
-
-                                {isTeacher && activeBoardId === board.id && (<button onClick={(e) => { e.stopPropagation(); exportBoard(board.id); }} className="p-0.5 rounded-full hover:bg-blue-100 text-gray-400 hover:text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity" title="Descargar"><IconDownload className="w-3 h-3" /></button>)}
-                                {isTeacher && activeBoardId === board.id && (<button onClick={(e) => { e.stopPropagation(); handleSaveBoardAsClass(); }} className="p-0.5 rounded-full hover:bg-green-100 text-gray-400 hover:text-green-500 opacity-0 group-hover:opacity-100 transition-opacity" title="Guardar en Librería"><IconBook className="w-3 h-3" /></button>)}
-                                {isTeacher && activeBoardId === board.id && sortedBoards.length > 1 && (<button onClick={(e) => { e.stopPropagation(); handleDeleteBoard(board.id); }} className="p-0.5 rounded-full hover:bg-red-100 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" title="Borrar"><IconX className="w-3 h-3" /></button>)}
                             </div>
                         ))}
                     </div>

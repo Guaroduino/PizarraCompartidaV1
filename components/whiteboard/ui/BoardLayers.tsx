@@ -3,6 +3,7 @@
 import React, { useMemo } from 'react';
 import { StaticStroke } from './StaticStroke';
 import { IconClipboardCopy } from '../../Icons';
+import Editor from '@monaco-editor/react';
 import type { WhiteboardLayer, WhiteboardStroke, WhiteboardImage, WhiteboardText } from '../../../types';
 import type { ExtendedWhiteboardText, TransformState, BoundingBox } from '../../../types/whiteboardTypes';
 
@@ -30,6 +31,19 @@ export const BoardLayers = React.memo((props: BoardLayersProps) => {
         selectedId, isTeacher, tool, cameraScale, tempStrokeTransform,
         strokeSelectionBounds, setEditingTextId, setTool, editingTextId
     } = props;
+
+    // Helper para limpiar el texto escapado (entidades HTML) cuando se muestra en Monaco
+    const decodeHtmlIfNeeded = (html: string) => {
+        if (!html) return "";
+        if (html.includes('&lt;') || html.includes('&gt;') || html.includes('&amp;')) {
+            const tempDiv = document.createElement("div");
+            // Convierte los saltos de línea HTML en físicos
+            let processedHtml = html.replace(/<div>/gi, '\n').replace(/<\/div>/gi, '').replace(/<br>/gi, '\n');
+            tempDiv.innerHTML = processedHtml;
+            return tempDiv.innerText || tempDiv.textContent || html;
+        }
+        return html;
+    };
 
     // Sorting layers
     const sortedLayers = useMemo(() =>
@@ -138,43 +152,71 @@ export const BoardLayers = React.memo((props: BoardLayersProps) => {
                                         style={{ overflow: 'visible', pointerEvents: 'auto' }}
                                     >
                                         <div className="w-full h-full relative group">
-                                            <div
-                                                className="w-full h-full rounded-lg p-3 border select-text custom-scrollbar"
-                                                style={{
-                                                    color: txt.color || 'inherit',
-                                                    fontSize: `${txt.fontSize || 16}px`,
-                                                    textAlign: txt.textAlign || 'left',
-                                                    fontFamily: fontFamilyStyle,
-                                                    fontWeight: txt.fontWeight || 'normal',
-                                                    fontStyle: txt.fontStyle || 'normal',
-                                                    textDecoration: txt.textDecoration || 'none',
-                                                    backgroundColor: txt.backgroundColor || 'transparent',
-                                                    borderColor: txt.borderColor || 'transparent',
-                                                    borderStyle: txt.borderStyle || 'solid',
-                                                    borderWidth: (txt.borderColor && txt.borderColor !== 'transparent') ? '2px' : '0px',
-                                                    lineHeight: '1.2', // Added to match HtmlTextEditor line heights to avoid fractional overflows
-                                                    wordBreak: 'break-word',
-                                                    whiteSpace: 'pre-wrap',
-                                                    overflowWrap: 'break-word',
-                                                    overflowY: 'auto',
-                                                    overflowX: 'hidden',
-                                                    cursor: isTeacher && tool === 'move' ? 'move' : (isTeacher && tool === 'text' ? 'text' : 'default'),
-                                                        // Respetar allowCopy: si está explícitamente en false, deshabilitamos selección y copia
-                                                        userSelect: (txt.allowCopy === false) ? 'none' : 'text',
-                                                        WebkitUserSelect: (txt.allowCopy === false) ? 'none' : 'text',
-                                                    display: 'flex',
-                                                    flexDirection: 'column',
-                                                    justifyContent: txt.verticalAlign === 'middle' ? 'center' : txt.verticalAlign === 'bottom' ? 'flex-end' : 'flex-start'
-                                                }}
-                                                dangerouslySetInnerHTML={{ __html: txt.content }}
-                                            />
+                                            {txt.textMode === 'code' ? (
+                                                <div 
+                                                    className="w-full h-full p-2 rounded-lg shadow-xl overflow-hidden pointer-events-auto"
+                                                    style={{ 
+                                                        backgroundColor: txt.codeTheme === 'vs' ? '#ffffff' : txt.codeTheme === 'hc-black' ? '#000000' : '#1e1e1e' 
+                                                    }}
+                                                >
+                                                    <Editor
+                                                        height="100%"
+                                                        width="100%"
+                                                        theme={txt.codeTheme || 'vs-dark'}
+                                                        value={decodeHtmlIfNeeded(txt.content)}
+                                                        language={txt.language || 'javascript'}
+                                                        options={{
+                                                            readOnly: true,
+                                                            domReadOnly: true,
+                                                            minimap: { enabled: false },
+                                                            fontSize: (txt.fontSize || 14) * Math.max(0.5, Math.min(cameraScale, 2)),
+                                                            wordWrap: "on",
+                                                            scrollBeyondLastLine: false,
+                                                            padding: { top: 12 },
+                                                        }}
+                                                    />
+                                                </div>
+                                            ) : (
+                                                <div
+                                                    className="w-full h-full rounded-lg p-3 border select-text custom-scrollbar"
+                                                    style={{
+                                                        color: txt.color || 'inherit',
+                                                        fontSize: `${txt.fontSize || 16}px`,
+                                                        textAlign: txt.textAlign || 'left',
+                                                        fontFamily: fontFamilyStyle,
+                                                        fontWeight: txt.fontWeight || 'normal',
+                                                        fontStyle: txt.fontStyle || 'normal',
+                                                        textDecoration: txt.textDecoration || 'none',
+                                                        backgroundColor: txt.backgroundColor || 'transparent',
+                                                        borderColor: txt.borderColor || 'transparent',
+                                                        borderStyle: txt.borderStyle || 'solid',
+                                                        borderWidth: (txt.borderColor && txt.borderColor !== 'transparent') ? '2px' : '0px',
+                                                        lineHeight: '1.2',
+                                                        wordBreak: txt.textMode === 'single' ? 'normal' : 'break-word',
+                                                        whiteSpace: txt.textMode === 'single' ? 'nowrap' : 'pre-wrap',
+                                                        overflowWrap: txt.textMode === 'single' ? 'normal' : 'break-word',
+                                                        overflowY: 'auto',
+                                                        overflowX: 'hidden',
+                                                        cursor: isTeacher && tool === 'move' ? 'move' : (isTeacher && tool === 'text' ? 'text' : 'default'),
+                                                            userSelect: (txt.allowCopy === false) ? 'none' : 'text',
+                                                            WebkitUserSelect: (txt.allowCopy === false) ? 'none' : 'text',
+                                                        display: 'flex',
+                                                        flexDirection: 'column',
+                                                        justifyContent: txt.verticalAlign === 'middle' ? 'center' : txt.verticalAlign === 'bottom' ? 'flex-end' : 'flex-start'
+                                                    }}
+                                                    dangerouslySetInnerHTML={{ __html: txt.content }}
+                                                />
+                                            )}
                                             {txt.allowCopy !== false && (
                                                 <button
                                                     onClick={(e) => {
                                                         e.stopPropagation();
-                                                        const tempDiv = document.createElement("div");
-                                                        tempDiv.innerHTML = txt.content;
-                                                        const textToCopy = tempDiv.innerText || tempDiv.textContent || "";
+                                                        let textToCopy = txt.content;
+                                                        if (txt.textMode !== 'code') {
+                                                            const tempDiv = document.createElement("div");
+                                                            tempDiv.innerHTML = txt.content;
+                                                            textToCopy = tempDiv.innerText || tempDiv.textContent || "";
+                                                        }
                                                         if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(textToCopy);
                                                         else {
                                                             const ta = document.createElement('textarea');

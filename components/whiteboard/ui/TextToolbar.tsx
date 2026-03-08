@@ -60,8 +60,8 @@ export const TextToolbar: React.FC<TextToolbarProps> = ({
     ];
 
     return (
-        <div 
-            className={`flex flex-col items-start bg-white dark:bg-dark-card p-2 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 z-[120] ${isOverlay ? 'mb-2' : 'absolute -top-28 left-0'}`}
+        <div
+            className={`flex flex-col items-start bg-white dark:bg-dark-card p-2 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 z-[120] ${isOverlay ? 'mb-2' : 'absolute -top-36 left-0'}`}
             onPointerDown={e => {
                 e.stopPropagation(); 
                 // Permitir foco en inputs dentro de la toolbar, prevenir blur en el editor de texto
@@ -72,18 +72,79 @@ export const TextToolbar: React.FC<TextToolbarProps> = ({
             }}
         >
             
-            {/* Row 1: Formatting & Font */}
+            {/* Row 0: Text Mode Selector */}
+            <div className="flex items-center gap-2 mb-2 w-full justify-between bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
+                <button 
+                  onClick={() => onUpdate({ textMode: 'single' })}
+                  className={`flex-1 flex justify-center py-1 text-xs font-bold rounded ${text.textMode === 'single' ? 'bg-white dark:bg-gray-600 shadow-sm text-primary' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+                >
+                  Línea
+                </button>
+                <button 
+                  onClick={() => onUpdate({ textMode: 'multi' })}
+                  className={`flex-1 flex justify-center py-1 text-xs font-bold rounded ${(!text.textMode || text.textMode === 'multi') ? 'bg-white dark:bg-gray-600 shadow-sm text-primary' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+                >
+                  Párrafo
+                </button>
+                <button 
+                  onClick={() => onUpdate({ textMode: 'code' })}
+                  className={`flex-1 flex justify-center py-1 text-xs font-bold rounded ${text.textMode === 'code' ? 'bg-white dark:bg-gray-600 shadow-sm text-primary' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+                >
+                  Código
+                </button>
+            </div>
+
+            {/* Row 1: Formatting & Font / Language */}
             <div className="flex items-center gap-2 mb-2 w-full justify-between">
-                {/* Font Family */}
-                <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-1 flex">
-                    <select 
-                        value={text.fontFamily || 'sans'} 
-                        onChange={(e) => onUpdate({ fontFamily: e.target.value as any })}
-                        className="bg-transparent text-xs font-bold text-gray-700 dark:text-gray-300 focus:outline-none cursor-pointer w-24"
-                    >
-                        {fontOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                    </select>
-                </div>
+                {text.textMode === 'code' ? (
+                    <div className="flex gap-2 w-full">
+                        <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-1 flex w-full">
+                            <select
+                                value={text.language || 'javascript'}
+                                onChange={(e) => onUpdate({ language: e.target.value })}
+                                className="bg-transparent text-xs font-bold text-gray-700 dark:text-gray-300 focus:outline-none cursor-pointer w-full max-w-[80px]"
+                            >
+                                <option value="javascript">JavaScript</option>
+                                <option value="typescript">TypeScript</option>
+                                <option value="python">Python</option>
+                                <option value="html">HTML</option>
+                                <option value="css">CSS</option>
+                                <option value="json">JSON</option>
+                                <option value="java">Java</option>
+                                <option value="csharp">C#</option>
+                                <option value="cpp">C++ / Arduino</option>
+                                <option value="php">PHP</option>
+                                <option value="ruby">Ruby</option>
+                                <option value="sql">SQL</option>
+                                <option value="markdown">Markdown</option>
+                            </select>
+                        </div>
+                        <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-1 flex">
+                            <select
+                                value={text.codeTheme || 'vs-dark'}
+                                onChange={(e) => onUpdate({ codeTheme: e.target.value as any })}
+                                className="bg-transparent text-xs font-bold text-gray-700 dark:text-gray-300 focus:outline-none cursor-pointer w-16"
+                            >
+                                <option value="vs-dark">Oscuro</option>
+                                <option value="vs">Claro</option>
+                                <option value="hc-black">Contr</option>
+                            </select>
+                        </div>
+                    </div>
+                ) : (
+                    <>
+                        {/* Font Family */}
+                        <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-1 flex">
+                            <select
+                                value={text.fontFamily || 'sans'}
+                                onChange={(e) => onUpdate({ fontFamily: e.target.value as any })}
+                                className="bg-transparent text-xs font-bold text-gray-700 dark:text-gray-300 focus:outline-none cursor-pointer w-24"
+                            >
+                                {fontOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                            </select>
+                        </div>
+                    </>
+                )}
 
                 {/* Size Controls */}
                 <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
@@ -98,12 +159,14 @@ export const TextToolbar: React.FC<TextToolbarProps> = ({
                     <button onClick={() => onUpdate({ fontSize: Math.min(200, (text.fontSize || 16) + 2) })} className="p-1 hover:text-primary"><IconPlus className="w-3 h-3"/></button>
                 </div>
 
-                {/* Style Buttons (B / I / U) */}
-                <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-1 gap-1">
-                    <button onClick={() => handleExecCommand('bold')} className={`w-6 h-6 flex items-center justify-center font-bold hover:bg-white dark:hover:bg-gray-700 rounded text-xs ${text.fontWeight === 'bold' ? 'bg-white dark:bg-gray-600 shadow-sm' : ''}`}>B</button>
-                    <button onClick={() => handleExecCommand('italic')} className={`w-6 h-6 flex items-center justify-center italic hover:bg-white dark:hover:bg-gray-700 rounded text-xs font-serif ${text.fontStyle === 'italic' ? 'bg-white dark:bg-gray-600 shadow-sm' : ''}`}>I</button>
-                    <button onClick={() => handleExecCommand('underline')} className={`w-6 h-6 flex items-center justify-center underline hover:bg-white dark:hover:bg-gray-700 rounded text-xs ${text.textDecoration === 'underline' ? 'bg-white dark:bg-gray-600 shadow-sm' : ''}`}>U</button>
-                </div>
+                {/* Style Buttons (B / I / U) - solo en modos normales */}
+                {text.textMode !== 'code' && (
+                    <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-1 gap-1">
+                        <button onClick={() => handleExecCommand('bold')} className={`w-6 h-6 flex items-center justify-center font-bold hover:bg-white dark:hover:bg-gray-700 rounded text-xs ${text.fontWeight === 'bold' ? 'bg-white dark:bg-gray-600 shadow-sm' : ''}`}>B</button>
+                        <button onClick={() => handleExecCommand('italic')} className={`w-6 h-6 flex items-center justify-center italic hover:bg-white dark:hover:bg-gray-700 rounded text-xs font-serif ${text.fontStyle === 'italic' ? 'bg-white dark:bg-gray-600 shadow-sm' : ''}`}>I</button>
+                        <button onClick={() => handleExecCommand('underline')} className={`w-6 h-6 flex items-center justify-center underline hover:bg-white dark:hover:bg-gray-700 rounded text-xs ${text.textDecoration === 'underline' ? 'bg-white dark:bg-gray-600 shadow-sm' : ''}`}>U</button>
+                    </div>
+                )}
             </div>
 
             <div className="h-px w-full bg-gray-200 dark:bg-gray-700 mb-2"></div>
@@ -113,14 +176,16 @@ export const TextToolbar: React.FC<TextToolbarProps> = ({
                 
                 {/* Colors */}
                 <div className="flex items-center gap-2">
-                    <div className="flex flex-col items-center">
-                        <ColorPickerButton 
-                            color={text.color || '#000000'}
-                            onChange={(c) => onUpdate({ color: c })}
-                            className="w-6 h-6 rounded-full border border-gray-300"
-                            position="top"
-                        />
-                    </div>
+                    {text.textMode !== 'code' && (
+                        <div className="flex flex-col items-center">
+                            <ColorPickerButton 
+                                color={text.color || '#000000'}
+                                onChange={(c) => onUpdate({ color: c })}
+                                className="w-6 h-6 rounded-full border border-gray-300"
+                                position="top"
+                            />
+                        </div>
+                    )}
                     <div className="flex flex-col items-center relative">
                         <ColorPickerButton 
                             color={text.backgroundColor && text.backgroundColor !== 'transparent' ? text.backgroundColor : '#ffffff'}
@@ -163,35 +228,39 @@ export const TextToolbar: React.FC<TextToolbarProps> = ({
                     </button>
                 </div>
 
-                {/* Alignment Group (Horizontal + Vertical) */}
-                <div className="flex flex-col gap-1">
-                    {/* Horizontal Alignment */}
-                    <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
-                        <button onClick={() => onUpdate({ textAlign: 'left' })} className={`p-1 rounded ${text.textAlign === 'left' ? 'bg-white dark:bg-gray-700 shadow-sm text-primary' : 'text-gray-400'}`}>
-                            <IconAlignLeft className="w-3 h-3"/>
-                        </button>
-                        <button onClick={() => onUpdate({ textAlign: 'center' })} className={`p-1 rounded ${text.textAlign === 'center' ? 'bg-white dark:bg-gray-700 shadow-sm text-primary' : 'text-gray-400'}`}>
-                            <IconAlignCenter className="w-3 h-3"/>
-                        </button>
-                        <button onClick={() => onUpdate({ textAlign: 'right' })} className={`p-1 rounded ${text.textAlign === 'right' ? 'bg-white dark:bg-gray-700 shadow-sm text-primary' : 'text-gray-400'}`}>
-                            <IconAlignRight className="w-3 h-3"/>
-                        </button>
-                    </div>
-                    {/* Vertical Alignment */}
-                    <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
-                        <button onClick={() => onUpdate({ verticalAlign: 'top' })} className={`p-1 rounded ${(!text.verticalAlign || text.verticalAlign === 'top') ? 'bg-white dark:bg-gray-700 shadow-sm text-primary' : 'text-gray-400'}`} title="Arriba">
-                            <IconAlignTop className="w-3 h-3"/>
-                        </button>
-                        <button onClick={() => onUpdate({ verticalAlign: 'middle' })} className={`p-1 rounded ${text.verticalAlign === 'middle' ? 'bg-white dark:bg-gray-700 shadow-sm text-primary' : 'text-gray-400'}`} title="Centro">
-                            <IconAlignMiddle className="w-3 h-3"/>
-                        </button>
-                        <button onClick={() => onUpdate({ verticalAlign: 'bottom' })} className={`p-1 rounded ${text.verticalAlign === 'bottom' ? 'bg-white dark:bg-gray-700 shadow-sm text-primary' : 'text-gray-400'}`} title="Abajo">
-                            <IconAlignBottom className="w-3 h-3"/>
-                        </button>
-                    </div>
-                </div>
+                {text.textMode !== 'code' && (
+                    <>
+                        {/* Alignment Group (Horizontal + Vertical) */}
+                        <div className="flex flex-col gap-1">
+                            {/* Horizontal Alignment */}
+                            <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
+                                <button onClick={() => onUpdate({ textAlign: 'left' })} className={`p-1 rounded ${text.textAlign === 'left' ? 'bg-white dark:bg-gray-700 shadow-sm text-primary' : 'text-gray-400'}`}>
+                                    <IconAlignLeft className="w-3 h-3"/>
+                                </button>
+                                <button onClick={() => onUpdate({ textAlign: 'center' })} className={`p-1 rounded ${text.textAlign === 'center' ? 'bg-white dark:bg-gray-700 shadow-sm text-primary' : 'text-gray-400'}`}>
+                                    <IconAlignCenter className="w-3 h-3"/>
+                                </button>
+                                <button onClick={() => onUpdate({ textAlign: 'right' })} className={`p-1 rounded ${text.textAlign === 'right' ? 'bg-white dark:bg-gray-700 shadow-sm text-primary' : 'text-gray-400'}`}>
+                                    <IconAlignRight className="w-3 h-3"/>
+                                </button>
+                            </div>
+                            {/* Vertical Alignment */}
+                            <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
+                                <button onClick={() => onUpdate({ verticalAlign: 'top' })} className={`p-1 rounded ${(!text.verticalAlign || text.verticalAlign === 'top') ? 'bg-white dark:bg-gray-700 shadow-sm text-primary' : 'text-gray-400'}`} title="Arriba">
+                                    <IconAlignTop className="w-3 h-3"/>
+                                </button>
+                                <button onClick={() => onUpdate({ verticalAlign: 'middle' })} className={`p-1 rounded ${text.verticalAlign === 'middle' ? 'bg-white dark:bg-gray-700 shadow-sm text-primary' : 'text-gray-400'}`} title="Centro">
+                                    <IconAlignMiddle className="w-3 h-3"/>
+                                </button>
+                                <button onClick={() => onUpdate({ verticalAlign: 'bottom' })} className={`p-1 rounded ${text.verticalAlign === 'bottom' ? 'bg-white dark:bg-gray-700 shadow-sm text-primary' : 'text-gray-400'}`} title="Abajo">
+                                    <IconAlignBottom className="w-3 h-3"/>
+                                </button>
+                            </div>
+                        </div>
 
-                <div className="h-6 w-px bg-gray-200 dark:bg-gray-700"></div>
+                        <div className="h-6 w-px bg-gray-200 dark:bg-gray-700"></div>
+                    </>
+                )}
 
                 {/* Management Actions */}
                 <div className="flex items-center gap-1">

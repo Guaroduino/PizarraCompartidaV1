@@ -5,6 +5,7 @@ import type { ExtendedWhiteboardText } from '../../../types/whiteboardTypes';
 import { TextToolbar } from './TextToolbar';
 import { WhiteboardLayer } from '../../../types';
 import { IconCheck, IconX, IconArrowsExpand, IconSwitchLocation } from '../../Icons';
+import Editor from '@monaco-editor/react';
 
 interface HtmlTextEditorProps {
     text: ExtendedWhiteboardText;
@@ -36,19 +37,36 @@ export const HtmlTextEditor: React.FC<HtmlTextEditorProps> = ({
     // Estado local para el texto (optimistic updates cuando se modifica desde la toolbar)
     const [localText, setLocalText] = useState<ExtendedWhiteboardText>(text);
 
+    // Helper para decodificar entidades HTML si el texto viene de formato enriquecido
+    const decodeHtmlIfNeeded = (html: string) => {
+        if (!html) return "";
+        // Si no parece tener tags de bloque pero sí entidades HTML o <br>, lo convertimos limpiamente
+        const tempDiv = document.createElement("div");
+        // Si viene del editor normal, los quiebres de línea son divs o brs
+        let processedHtml = html.replace(/<div>/gi, '\n').replace(/<\/div>/gi, '').replace(/<br>/gi, '\n');
+        tempDiv.innerHTML = processedHtml;
+        return tempDiv.innerText || tempDiv.textContent || html;
+    };
+
     // Sincronizar contenido inicial y prop updates
     useEffect(() => {
-        if (editorRef.current && editorRef.current.innerHTML !== text.content) {
+        if (text.textMode !== 'code' && editorRef.current && editorRef.current.innerHTML !== text.content) {
             editorRef.current.innerHTML = text.content;
         }
-        contentRef.current = text.content;
+        
+        if (text.textMode === 'code') {
+            contentRef.current = decodeHtmlIfNeeded(text.content);
+        } else {
+            contentRef.current = text.content;
+        }
+        
         // Mantener localText sincronizado cuando cambian las props externas
         setLocalText(text);
     }, [text]);
 
     // Enfocar al montar
     useLayoutEffect(() => {
-        if (editorRef.current) {
+        if (text.textMode !== 'code' && editorRef.current) {
             editorRef.current.focus();
             // Seleccionar todo el texto
             const range = document.createRange();
@@ -57,11 +75,21 @@ export const HtmlTextEditor: React.FC<HtmlTextEditorProps> = ({
             sel?.removeAllRanges();
             sel?.addRange(range);
         }
-    }, []);
+    }, [text.textMode]);
 
     const handleSave = () => {
-        if (editorRef.current) {
-            const newContent = editorRef.current.innerHTML;
+        if (text.textMode === 'code') {
+            onUpdate({
+                content: contentRef.current,
+                width: dimensions.width,
+                height: dimensions.height
+            });
+        } else if (editorRef.current) {
+            let newContent = editorRef.current.innerHTML;
+            if (text.textMode === 'single') {
+                 // Convert lines to a single line
+                 newContent = newContent.replace(/<div[^>]*>/g, ' ').replace(/<\/div>/g, ' ').replace(/<br[^>]*>/g, ' ').replace(/\n/g, ' ').trim();
+            }
             onUpdate({
                 content: newContent,
                 width: dimensions.width,
@@ -76,7 +104,22 @@ export const HtmlTextEditor: React.FC<HtmlTextEditorProps> = ({
     };
 
     const handleInput = (e: React.FormEvent<HTMLDivElement>) => {
-        contentRef.current = e.currentTarget.innerHTML;
+        let val = e.currentTarget.innerHTML;
+        if (text.textMode === 'single') {
+             // Avoid rendering multiline
+             if (val.includes('<div>') || val.includes('<br>')) {
+                 val = val.replace(/<div[^>]*>/g, ' ').replace(/<\/div>/g, ' ').replace(/<br[^>]*>/g, ' ').replace(/\n/g, ' ').trim();
+                 e.currentTarget.innerHTML = val;
+                 // Set caret to end
+                 const range = document.createRange();
+                 range.selectNodeContents(e.currentTarget);
+                 range.collapse(false);
+                 const sel = window.getSelection();
+                 sel?.removeAllRanges();
+                 sel?.addRange(range);
+             }
+        }
+        contentRef.current = val;
     };
 
     // --- Lógica de Redimensionamiento (con Pointer Capture para Stylus) ---
@@ -239,34 +282,65 @@ export const HtmlTextEditor: React.FC<HtmlTextEditorProps> = ({
 
             {/* Área de Edición */}
             <div className="relative w-full h-full group">
-                <div
-                    ref={editorRef}
-                    contentEditable
-                    suppressContentEditableWarning
-                    onInput={handleInput}
-                    className="w-full h-full outline-none p-3 rounded-t-lg shadow-xl bg-white/95 backdrop-blur-sm border-2 border-primary border-b-0 overflow-hidden"
-                    style={{
-                        color: text.color || 'inherit',
-                        fontSize: `${(text.fontSize || 16) * camera.scale}px`,
-                        textAlign: text.textAlign || 'left',
-                        fontFamily: fontFamilyStyle,
-                        fontWeight: text.fontWeight || 'normal',
-                        fontStyle: text.fontStyle || 'normal',
-                        textDecoration: text.textDecoration || 'none',
-                        backgroundColor: text.backgroundColor || 'transparent',
-                        borderColor: text.borderColor || 'transparent',
-                        borderStyle: text.borderStyle || 'solid',
-                        borderWidth: (text.borderColor && text.borderColor !== 'transparent') ? `${2 * camera.scale}px` : '0px',
-                        lineHeight: '1.2',
-                        whiteSpace: 'pre-wrap',
-                        wordBreak: 'break-word',
-                        overflowWrap: 'break-word',
-                        resize: 'none',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        justifyContent: text.verticalAlign === 'middle' ? 'center' : text.verticalAlign === 'bottom' ? 'flex-end' : 'flex-start'
-                    }}
-                />
+                {text.textMode === 'code' ? (
+                    <div 
+                        className="w-full h-full p-2 rounded-t-lg shadow-xl outline-none" 
+                        style={{ 
+                            pointerEvents: 'auto',
+                            backgroundColor: text.codeTheme === 'vs' ? '#ffffff' : text.codeTheme === 'hc-black' ? '#000000' : '#1e1e1e'
+                        }}
+                    >
+                        <Editor
+                            height="100%"
+                            width="100%"
+                            theme={text.codeTheme || 'vs-dark'}
+                            language={text.language || 'javascript'}
+                            value={contentRef.current}
+                            onChange={(val) => { contentRef.current = val || ""; }}
+                            options={{
+                                minimap: { enabled: false },
+                                fontSize: (text.fontSize || 14) * Math.max(0.5, Math.min(camera.scale, 2)),
+                                wordWrap: "on",
+                                padding: { top: 12 },
+                            }}
+                        />
+                    </div>
+                ) : (
+                    <div
+                        ref={editorRef}
+                        contentEditable
+                        suppressContentEditableWarning
+                        onKeyDown={(e) => {
+                            if (text.textMode === 'single' && e.key === 'Enter') {
+                                e.preventDefault();
+                                handleSave();
+                            }
+                        }}
+                        onInput={handleInput}
+                        className="w-full h-full outline-none p-3 rounded-t-lg shadow-xl bg-white/95 backdrop-blur-sm border-2 border-primary border-b-0 overflow-hidden"
+                        style={{
+                            color: text.color || 'inherit',
+                            fontSize: `${(text.fontSize || 16) * camera.scale}px`,
+                            textAlign: text.textAlign || 'left',
+                            fontFamily: fontFamilyStyle,
+                            fontWeight: text.fontWeight || 'normal',
+                            fontStyle: text.fontStyle || 'normal',
+                            textDecoration: text.textDecoration || 'none',
+                            backgroundColor: text.backgroundColor || 'transparent',
+                            borderColor: text.borderColor || 'transparent',
+                            borderStyle: text.borderStyle || 'solid',
+                            borderWidth: (text.borderColor && text.borderColor !== 'transparent') ? `${2 * camera.scale}px` : '0px',
+                            lineHeight: '1.2',
+                            whiteSpace: text.textMode === 'single' ? 'nowrap' : 'pre-wrap',
+                            wordBreak: text.textMode === 'single' ? 'normal' : 'break-word',
+                            overflowWrap: text.textMode === 'single' ? 'normal' : 'break-word',
+                            resize: 'none',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: text.verticalAlign === 'middle' ? 'center' : text.verticalAlign === 'bottom' ? 'flex-end' : 'flex-start'
+                        }}
+                    />
+                )}
 
                 {/* --- HANDLE DE ARRASTRE --- */}
                 <div
