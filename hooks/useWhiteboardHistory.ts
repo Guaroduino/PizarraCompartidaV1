@@ -1,6 +1,6 @@
 
 import { useState } from 'react';
-import { doc, updateDoc } from "firebase/firestore";
+import { doc, updateDoc, deleteDoc, setDoc } from "firebase/firestore";
 import { db } from '../services/firebase';
 import type { WhiteboardAction } from '../types/whiteboardTypes';
 
@@ -25,8 +25,8 @@ export const useWhiteboardHistory = (setIsSyncing: (val: boolean) => void) => {
         
         setIsSyncing(true);
         try {
-            if (action.type === 'create') await updateDoc(doc(db, coll, action.targetId), { deleted: true });
-            else if (action.type === 'delete') await updateDoc(doc(db, coll, action.targetId), { deleted: false });
+            if (action.type === 'create') await deleteDoc(doc(db, coll, action.targetId));
+            else if (action.type === 'delete') await setDoc(doc(db, coll, action.targetId), action.data);
             else if (action.type === 'update') await updateDoc(doc(db, coll, action.targetId), action.prevData);
             
             setRedoStack(prev => [action, ...prev]);
@@ -42,8 +42,8 @@ export const useWhiteboardHistory = (setIsSyncing: (val: boolean) => void) => {
         
         setIsSyncing(true);
         try {
-            if (action.type === 'create') await updateDoc(doc(db, coll, action.targetId), { deleted: false });
-            else if (action.type === 'delete') await updateDoc(doc(db, coll, action.targetId), { deleted: true });
+            if (action.type === 'create') await setDoc(doc(db, coll, action.targetId), action.data);
+            else if (action.type === 'delete') await deleteDoc(doc(db, coll, action.targetId));
             else if (action.type === 'update') await updateDoc(doc(db, coll, action.targetId), action.newData);
             
             setRedoStack(redoStack.slice(1));

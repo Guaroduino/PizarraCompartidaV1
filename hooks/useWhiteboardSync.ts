@@ -347,9 +347,9 @@ export const useWhiteboardSync = (user: User | null, isTeacher: boolean, courseI
         setIsSyncing(true);
         try {
             const batch = writeBatch(db);
-            strokes.filter(s => s.layerId === layerId).forEach(s => batch.update(doc(db, 'whiteboardStrokes', s.id), { deleted: true }));
-            images.filter(i => i.layerId === layerId).forEach(i => batch.update(doc(db, 'whiteboardImages', i.id), { deleted: true }));
-            texts.filter(t => t.layerId === layerId).forEach(t => batch.update(doc(db, 'whiteboardTexts', t.id), { deleted: true }));
+            strokes.filter(s => s.layerId === layerId).forEach(s => batch.delete(doc(db, 'whiteboardStrokes', s.id)));
+            images.filter(i => i.layerId === layerId).forEach(i => batch.delete(doc(db, 'whiteboardImages', i.id)));
+            texts.filter(t => t.layerId === layerId).forEach(t => batch.delete(doc(db, 'whiteboardTexts', t.id)));
             
             await deleteDoc(doc(db, 'whiteboardLayers', layerId));
             await batch.commit();

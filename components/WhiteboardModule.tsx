@@ -86,7 +86,18 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
     const [showSettings, setShowSettings] = useState(false);
     const [camera, setCamera] = useState({ x: 0, y: 0, scale: 0.8 });
     const [dimensions, setDimensions] = useState({ width: window.innerWidth, height: window.innerHeight });
-    const [toolbarPosition, setToolbarPosition] = useState<'default' | 'bottom-right'>('default');
+
+    // Eraser configuration states
+    const [eraserTargets, setEraserTargets] = useState(() => {
+        const saved = localStorage.getItem('wb_eraser_targets');
+        return saved ? JSON.parse(saved) : { strokes: true, images: false, texts: false };
+    });
+    const [eraserLayerScope, setEraserLayerScope] = useState<'current' | 'all'>('current');
+    const [eraserMode, setEraserMode] = useState<'freehand' | 'rect' | 'circle'>('freehand');
+
+    useEffect(() => {
+        localStorage.setItem('wb_eraser_targets', JSON.stringify(eraserTargets));
+    }, [eraserTargets]);
 
     // File Imports State
     const [importingFile, setImportingFile] = useState<File | Blob | null>(null);
@@ -562,8 +573,12 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
             try {
                 const batch = writeBatch(db);
                 realIds.forEach(id => {
-                    batch.update(doc(db, 'whiteboardStrokes', id), { deleted: true });
-                    recordAction({ type: 'delete', targetType: 'stroke', targetId: id });
+                    const stroke = activeStrokes.find(s => s.id === id);
+                    if (stroke) {
+                        const { id: _, ...data } = stroke;
+                        batch.delete(doc(db, 'whiteboardStrokes', id));
+                        recordAction({ type: 'delete', targetType: 'stroke', targetId: id, data });
+                    }
                 });
                 await batch.commit();
             } catch (e) {
@@ -573,7 +588,42 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                 setIsSyncing(false);
             }
         }
-    }, [isSyncPaused, recordAction, setIsSyncing]);
+    }, [isSyncPaused, recordAction, setIsSyncing, activeStrokes]);
+
+    const handleDeleteElements = useCallback(async (imageIds: string[], textIds: string[]) => {
+        if (imageIds.length === 0 && textIds.length === 0) return;
+        if (isSyncPaused) {
+            alert("No se pueden borrar elementos en modo offline.");
+            return;
+        }
+
+        setIsSyncing(true);
+        try {
+            const batch = writeBatch(db);
+            imageIds.forEach(id => {
+                const item = localImages.find(i => i.id === id);
+                if (item) {
+                    const { id: _, ...data } = item;
+                    batch.delete(doc(db, 'whiteboardImages', id));
+                    recordAction({ type: 'delete', targetType: 'image', targetId: id, data });
+                }
+            });
+            textIds.forEach(id => {
+                const item = localTexts.find(t => t.id === id);
+                if (item) {
+                    const { id: _, ...data } = item;
+                    batch.delete(doc(db, 'whiteboardTexts', id));
+                    recordAction({ type: 'delete', targetType: 'text', targetId: id, data });
+                }
+            });
+            await batch.commit();
+        } catch (e) {
+            console.error("Error deleting elements:", e);
+            alert("Error al borrar elementos de la pizarra.");
+        } finally {
+            setIsSyncing(false);
+        }
+    }, [isSyncPaused, recordAction, setIsSyncing, localImages, localTexts]);
 
     const {
         selectedId, setSelectedId, setSelectedType, selectedType,
@@ -654,12 +704,107 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
         }
 
         if (tool === 'eraser') {
-            const radius = (size + 5) / camera.scale;
-            const targets = activeStrokes.filter(s => s.points.some(p => points.some(ep => Math.sqrt(Math.pow(p.x - ep.x, 2) + Math.pow(p.y - ep.y, 2)) < radius)));
+            const strokesScope = activeStrokes.filter(s => !lockedLayerIds.has(s.layerId || '') && (eraserLayerScope === 'all' || s.layerId === activeLayerId));
+            const imagesScope = activeImages.filter(img => !lockedLayerIds.has(img.layerId || '') && (eraserLayerScope === 'all' || img.layerId === activeLayerId));
+            const textsScope = activeTexts.filter(txt => !lockedLayerIds.has(txt.layerId || '') && (eraserLayerScope === 'all' || txt.layerId === activeLayerId));
 
-            if (targets.length > 0) {
-                const ids = targets.map(s => s.id);
-                handleDeleteStrokes(ids);
+            const strokeIdsToDelete: string[] = [];
+            const imageIdsToDelete: string[] = [];
+            const textIdsToDelete: string[] = [];
+
+            const isPointInRect = (px: number, py: number, rx: number, ry: number, rw: number, rh: number) => {
+                return px >= rx && px <= rx + rw && py >= ry && py <= ry + rh;
+            };
+
+            const isPointInCircle = (px: number, py: number, cx: number, cy: number, radius: number) => {
+                return Math.sqrt(Math.pow(px - cx, 2) + Math.pow(py - cy, 2)) < radius;
+            };
+
+            if (eraserMode === 'freehand') {
+                const radius = (size + 5) / camera.scale;
+
+                if (eraserTargets.strokes) {
+                    strokesScope.forEach(s => {
+                        const intersects = s.points.some(p => points.some(ep => Math.sqrt(Math.pow(p.x - ep.x, 2) + Math.pow(p.y - ep.y, 2)) < radius));
+                        if (intersects) strokeIdsToDelete.push(s.id);
+                    });
+                }
+
+                if (eraserTargets.images) {
+                    imagesScope.forEach(img => {
+                        const intersects = points.some(ep => isPointInRect(ep.x, ep.y, img.x, img.y, img.width, img.height));
+                        if (intersects) imageIdsToDelete.push(img.id);
+                    });
+                }
+
+                if (eraserTargets.texts) {
+                    textsScope.forEach(txt => {
+                        const intersects = points.some(ep => isPointInRect(ep.x, ep.y, txt.x, txt.y, txt.width, txt.height));
+                        if (intersects) textIdsToDelete.push(txt.id);
+                    });
+                }
+            } else if (eraserMode === 'rect' && points.length > 1) {
+                const minX = Math.min(points[0].x, points[points.length - 1].x);
+                const minY = Math.min(points[0].y, points[points.length - 1].y);
+                const width = Math.abs(points[0].x - points[points.length - 1].x);
+                const height = Math.abs(points[0].y - points[points.length - 1].y);
+
+                if (eraserTargets.strokes) {
+                    strokesScope.forEach(s => {
+                        const intersects = s.points.some(p => isPointInRect(p.x, p.y, minX, minY, width, height));
+                        if (intersects) strokeIdsToDelete.push(s.id);
+                    });
+                }
+
+                if (eraserTargets.images) {
+                    imagesScope.forEach(img => {
+                        const intersects = !(minX > img.x + img.width || minX + width < img.x || minY > img.y + img.height || minY + height < img.y);
+                        if (intersects) imageIdsToDelete.push(img.id);
+                    });
+                }
+
+                if (eraserTargets.texts) {
+                    textsScope.forEach(txt => {
+                        const intersects = !(minX > txt.x + txt.width || minX + width < txt.x || minY > txt.y + txt.height || minY + height < txt.y);
+                        if (intersects) textIdsToDelete.push(txt.id);
+                    });
+                }
+            } else if (eraserMode === 'circle' && points.length > 1) {
+                const cx = points[0].x;
+                const cy = points[0].y;
+                const radius = Math.hypot(points[points.length - 1].x - cx, points[points.length - 1].y - cy);
+
+                if (eraserTargets.strokes) {
+                    strokesScope.forEach(s => {
+                        const intersects = s.points.some(p => isPointInCircle(p.x, p.y, cx, cy, radius));
+                        if (intersects) strokeIdsToDelete.push(s.id);
+                    });
+                }
+
+                if (eraserTargets.images) {
+                    imagesScope.forEach(img => {
+                        const closestX = Math.max(img.x, Math.min(cx, img.x + img.width));
+                        const closestY = Math.max(img.y, Math.min(cy, img.y + img.height));
+                        const intersects = isPointInCircle(closestX, closestY, cx, cy, radius);
+                        if (intersects) imageIdsToDelete.push(img.id);
+                    });
+                }
+
+                if (eraserTargets.texts) {
+                    textsScope.forEach(txt => {
+                        const closestX = Math.max(txt.x, Math.min(cx, txt.x + txt.width));
+                        const closestY = Math.max(txt.y, Math.min(cy, txt.y + txt.height));
+                        const intersects = isPointInCircle(closestX, closestY, cx, cy, radius);
+                        if (intersects) textIdsToDelete.push(txt.id);
+                    });
+                }
+            }
+
+            if (strokeIdsToDelete.length > 0) {
+                handleDeleteStrokes(strokeIdsToDelete);
+            }
+            if (imageIdsToDelete.length > 0 || textIdsToDelete.length > 0) {
+                handleDeleteElements(imageIdsToDelete, textIdsToDelete);
             }
             return;
         }
@@ -679,12 +824,13 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
         setIsSyncing(true);
         try {
             const roundedPath = points.map(p => ({ x: Math.round(p.x * 100) / 100, y: Math.round(p.y * 100) / 100, pressure: Math.round(p.pressure * 100) / 100 }));
-            const docRef = await addDoc(collection(db, 'whiteboardStrokes'), {
+            const strokeData = {
                 points: roundedPath, color, size, opacity, timestamp: Date.now(),
                 boardId: activeBoardId, pageId: activePageId, layerId: activeLayerId, keyframeId: activeKeyframeId,
                 type: tool === 'pen' ? 'pen' : 'eraser', deleted: false, options: finalOptions
-            });
-            recordAction({ type: 'create', targetType: 'stroke', targetId: docRef.id });
+            };
+            const docRef = await addDoc(collection(db, 'whiteboardStrokes'), strokeData);
+            recordAction({ type: 'create', targetType: 'stroke', targetId: docRef.id, data: strokeData });
         } catch (e) { console.error(e); } finally { setIsSyncing(false); }
     };
 
@@ -700,6 +846,33 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
         } else {
             setSelectedStrokeIds(newSelectedIds);
         }
+
+        if (newSelectedIds.length === 0) {
+            const selectedImg = activeImages.find(img => {
+                if (lockedLayerIds.has(img.layerId || '')) return false;
+                const center = { x: img.x + img.width / 2, y: img.y + img.height / 2 };
+                return isPointInPolygon(center, closedLoop);
+            });
+            if (selectedImg) {
+                setSelectedId(selectedImg.id);
+                setSelectedType('image');
+                return;
+            }
+
+            const selectedTxt = activeTexts.find(txt => {
+                if (lockedLayerIds.has(txt.layerId || '')) return false;
+                const center = { x: txt.x + txt.width / 2, y: txt.y + txt.height / 2 };
+                return isPointInPolygon(center, closedLoop);
+            });
+            if (selectedTxt) {
+                setSelectedId(selectedTxt.id);
+                setSelectedType('text');
+                return;
+            }
+        } else {
+            setSelectedId(null);
+            setSelectedType(null);
+        }
     };
 
     const handleUpdateFirestore = async (id: string, type: 'image' | 'text', data: any) => {
@@ -713,13 +886,14 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
         try { await updateDoc(doc(db, coll, id), data); } finally { setIsSyncing(false); }
     };
 
-    const { handlePointerDown, handlePointerMove, handlePointerUp, handlePointerCancel, currentStroke, isInteracting } = useWhiteboardGestures({
+    const { handlePointerDown, handlePointerMove, handlePointerUp, handlePointerCancel, currentStroke, isInteracting, finishPolyline } = useWhiteboardGestures({
         tool, isTeacher, stylusOnly, isNavLocked, strokeOpts, screenToWorld, setCamera, camera, onStrokeComplete: handleStrokeComplete,
         lassoPoints, setLassoPoints: (pts) => { if (Array.isArray(pts)) { setSelectedStrokeIds([]); setStrokeSelectionBounds(null); } setLassoPoints(pts); },
         setSelectedId, setSelectedType, setTransformMode, selectedId, isCropMode,
         activeImages: localImages, activeTexts: localTexts, setImages: setLocalImages, setTexts: setLocalTexts,
         strokeSelectionBounds, selectedStrokeIds, initialTransformParams, tempStrokeTransform, setTempStrokeTransform, finalizeStrokeTransform,
-        onLassoEnd: handleLassoEnd, updateItemInFirestore: handleUpdateFirestore, transformMode, drawStyle, activeStrokes, lockedLayerIds
+        onLassoEnd: handleLassoEnd, updateItemInFirestore: handleUpdateFirestore, transformMode, drawStyle, activeStrokes, lockedLayerIds,
+        eraserMode
     });
 
     // ... (Library and Import functions omitted for brevity, keeping same logic as before) ...
@@ -730,6 +904,45 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
     // Helper function to render current drawing stroke properly
     const renderCurrentStroke = () => {
         if (!currentStroke || !isTeacher || lassoPoints) return null;
+
+        if (tool === 'eraser') {
+            if (eraserMode === 'rect' && currentStroke.length > 1) {
+                const start = currentStroke[0];
+                const end = currentStroke[currentStroke.length - 1];
+                const minX = Math.min(start.x, end.x);
+                const minY = Math.min(start.y, end.y);
+                const width = Math.abs(start.x - end.x);
+                const height = Math.abs(start.y - end.y);
+                return (
+                    <rect
+                        x={minX}
+                        y={minY}
+                        width={width}
+                        height={height}
+                        fill="rgba(239, 68, 68, 0.15)"
+                        stroke="rgba(239, 68, 68, 0.8)"
+                        strokeWidth={2 / camera.scale}
+                        strokeDasharray="4 4"
+                    />
+                );
+            }
+            if (eraserMode === 'circle' && currentStroke.length > 1) {
+                const start = currentStroke[0];
+                const end = currentStroke[currentStroke.length - 1];
+                const radius = Math.hypot(end.x - start.x, end.y - start.y);
+                return (
+                    <circle
+                        cx={start.x}
+                        cy={start.y}
+                        r={radius}
+                        fill="rgba(239, 68, 68, 0.15)"
+                        stroke="rgba(239, 68, 68, 0.8)"
+                        strokeWidth={2 / camera.scale}
+                        strokeDasharray="4 4"
+                    />
+                );
+            }
+        }
 
         const effectiveFilled = isFilled;
         const effectiveStroked = isStroked || (tool !== 'eraser' && !effectiveFilled);
@@ -1028,8 +1241,8 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                 teacherOnly: false
             };
 
-            await addDoc(collection(db, 'whiteboardImages'), imageData);
-            recordAction({ type: 'create', targetType: 'image', targetId: 'new_image_from_panel' });
+            const docRef = await addDoc(collection(db, 'whiteboardImages'), imageData);
+            recordAction({ type: 'create', targetType: 'image', targetId: docRef.id, data: imageData });
         } catch (e) {
             console.error("Error dropping panel image:", e);
             alert("Error al subir la imagen generada. Verifique su conexión.");
@@ -1198,7 +1411,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
         setIsSyncing(true);
         try {
             const docRef = await addDoc(collection(db, 'whiteboardTexts'), textData);
-            recordAction({ type: 'create', targetType: 'text', targetId: docRef.id });
+            recordAction({ type: 'create', targetType: 'text', targetId: docRef.id, data: textData });
             setEditingTextId(docRef.id);
             setTool('move');
         } finally { setIsSyncing(false); }
@@ -1275,7 +1488,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                 const worldPos = screenToWorld(window.innerWidth / 2, window.innerHeight / 2);
                 const imageData = { boardId: activeBoardId, pageId: activePageId, layerId: activeLayerId, keyframeId: activeKeyframeId, url, x: worldPos.x - 150, y: worldPos.y - 150, width: 300, height: 300, rotation: 0, zIndex: images.length, timestamp: Date.now(), deleted: false, teacherOnly: isTeacherOnly };
                 if (isSyncPaused) { setPendingImages(prev => [...prev, { ...imageData, id: `temp_img_${Date.now()}` }]); }
-                else { const docRef = await addDoc(collection(db, 'whiteboardImages'), imageData); recordAction({ type: 'create', targetType: 'image', targetId: docRef.id }); }
+                else { const docRef = await addDoc(collection(db, 'whiteboardImages'), imageData); recordAction({ type: 'create', targetType: 'image', targetId: docRef.id, data: imageData }); }
             }
         } catch (e) { console.error(e); } finally { setIsSyncing(false); setImportingFile(null); }
     };
@@ -1293,7 +1506,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                 for (let i = 0; i < allRefs.length; i += CHUNK_SIZE) {
                     const chunk = allRefs.slice(i, i + CHUNK_SIZE);
                     const batch = writeBatch(db);
-                    chunk.forEach(ref => batch.update(ref, { deleted: true }));
+                    chunk.forEach(ref => batch.delete(ref));
                     await batch.commit();
                 }
                 setPendingStrokes([]); setPendingImages([]); setPendingTexts([]); clearHistory();
@@ -1484,11 +1697,16 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                             }
                         }}
                         onCut={() => { }}
-                        onDelete={() => {
+                        onDelete={async () => {
                             if (editingTextId.startsWith('temp_')) {
                                 setPendingTexts(prev => prev.filter(t => t.id !== editingTextId));
                             } else {
-                                updateDoc(doc(db, 'whiteboardTexts', editingTextId), { deleted: true });
+                                const textObj = activeTexts.find(t => t.id === editingTextId);
+                                if (textObj) {
+                                    const { id: _, ...data } = textObj;
+                                    recordAction({ type: 'delete', targetType: 'text', targetId: editingTextId, data });
+                                    await deleteDoc(doc(db, 'whiteboardTexts', editingTextId));
+                                }
                             }
                             setEditingTextId(null);
                         }}
@@ -1562,7 +1780,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                         }}
                         shapeRendering={isInteracting ? 'optimizeSpeed' : 'geometricPrecision'}
                     >
-                        <g filter="url(#shadow)"><rect x="0" y="0" width={boardSettings.width || 1920} height={boardSettings.height || 1080} fill={boardSettings.bgColor} />{boardSettings.bgImageUrl && <image href={boardSettings.bgImageUrl} x="0" y="0" width={boardSettings.width || 1920} height={boardSettings.height || 1080} preserveAspectRatio="xMidYMid slice" />}</g>
+                        <g filter="url(#shadow)"><rect x="0" y="0" width={boardSettings.width || 1920} height={boardSettings.height || 1080} fill={boardSettings.bgColor} />{boardSettings.bgImageUrl && <image href={boardSettings.bgImageUrl} x="0" y="0" width={boardSettings.width || 1920} height={boardSettings.height || 1080} preserveAspectRatio="xMidYMid slice" onDragStart={(e) => e.preventDefault()} style={{ pointerEvents: 'none' }} />}</g>
 
                         {shouldRenderGrid && (
                             <g pointerEvents="none">
@@ -1656,15 +1874,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                                     <div className="w-px bg-gray-200 dark:bg-gray-700 mx-1" />
                                     <button onClick={handleToggleSync} className={`p-2 rounded-lg shadow-sm transition-colors ${isSyncPaused ? 'bg-orange-100 text-orange-600 dark:bg-orange-900/50 dark:text-orange-300' : 'bg-green-100 text-green-600 dark:bg-green-900/50 dark:text-green-300'}`} title={isSyncPaused ? "Modo Offline" : "Sincronizado"}>{isSyncPaused ? <IconCloudOff className="w-5 h-5" /> : <IconCloud className="w-5 h-5" />}</button>
                                     <div className="w-px bg-gray-200 dark:bg-gray-700 mx-1" />
-                                    <button onClick={handleZoomExtents} className="p-2 bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-lg shadow-sm hover:text-primary transition-colors"><IconArrowsExpand className="w-5 h-5" /></button>
-                                    <div className="w-px bg-gray-200 dark:bg-gray-700 mx-1" />
-                                    <button onClick={() => setCamera(prev => ({ ...prev, scale: Math.min(10, prev.scale * 1.25) }))} className="p-2 bg-white dark:bg-gray-700 font-black text-lg rounded-lg shadow-sm w-9">+</button>
-                                    <button onClick={() => setCamera(prev => ({ ...prev, scale: Math.max(0.1, prev.scale * 0.8) }))} className="p-2 bg-white dark:bg-gray-700 font-black text-lg rounded-lg shadow-sm w-9">-</button>
-                                    <button onClick={() => setTool(tool === 'hand' ? 'pen' : 'hand')} className={`p-2 rounded-lg shadow-sm transition-colors ${tool === 'hand' ? 'bg-primary text-white' : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:text-primary'}`}><IconHand className="w-5 h-5" /></button>
-                                    <div className="w-px bg-gray-200 dark:bg-gray-700 mx-1" />
                                     <button onClick={() => setIsNavLocked(!isNavLocked)} className={`p-2 rounded-lg shadow-sm transition-colors ${isNavLocked ? 'bg-red-500 text-white' : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:text-primary'}`}>{isNavLocked ? <IconLockClosed className="w-5 h-5" /> : <IconLockOpen className="w-5 h-5" />}</button>
-                                    <div className="w-px bg-gray-200 dark:bg-gray-700 mx-1" />
-                                    <button onClick={() => setIsSidePanelOpen(!isSidePanelOpen)} className={`p-2 rounded-lg shadow-sm transition-colors ${isSidePanelOpen ? 'bg-secondary text-white' : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:text-secondary'}`} title={isSidePanelOpen ? "Cerrar Asistente" : "Abrir Asistente"}><IconSidebar className="w-5 h-5" /></button>
                                 </div>
                                 <div className="w-px bg-gray-200 dark:bg-gray-700 mx-1" />
                             </>
@@ -1695,49 +1905,79 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                     />
                 )}
 
+                {isTeacher && tool === 'polyline' && currentStroke && currentStroke.length > 1 && (
+                    <div className="absolute bottom-36 left-1/2 -translate-x-1/2 z-[100] animate-in fade-in slide-in-from-bottom-3 pointer-events-auto">
+                        <button
+                            onClick={finishPolyline}
+                            className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-xl shadow-lg border border-green-400 font-bold text-xs flex items-center gap-1.5 transition-all hover:scale-105"
+                            title="Finalizar Polilínea (Enter / Clic Largo)"
+                        >
+                            <IconCheck className="w-4 h-4" />
+                            <span>Finalizar Polilínea</span>
+                        </button>
+                    </div>
+                )}
+
                 {isTeacher && (
-                    <>
-                        <div className={`absolute ${toolbarPosition === 'default' ? 'top-4 left-4' : 'bottom-20 right-4'} z-40`}>
-                            {isTeacher && !isNavLocked && (
-                                <WhiteboardToolbar
-                                    tool={tool}
-                                    setTool={setTool}
-                                    presets={presets}
-                                    activePresetIdx={activePresetIdx}
-                                    onSelectPreset={handleSelectPreset}
-                                    onUpdatePreset={handleUpdatePreset}
-                                    stylusOnly={stylusOnly}
-                                    setStylusOnly={setStylusOnly}
-                                    showLayers={showLayers}
-                                    setShowLayers={setShowLayers}
-                                    toolbarPosition={toolbarPosition}
-                                    setToolbarPosition={setToolbarPosition}
-                                    onImageUpload={(e) => { if (e.target?.files) setImportingFile(e.target.files[0]) }}
-                                    currentColor={color}
-                                    onSetColor={setColor}
-                                    fillColor={fillColor}
-                                    onSetFillColor={setFillColor}
-                                    isFilled={isFilled}
-                                    onToggleFill={setIsFilled}
-                                    isStroked={isStroked}
-                                    onToggleStroke={setIsStroked}
-                                    drawStyle={drawStyle}
-                                    setDrawStyle={setDrawStyle}
-                                    currentSize={size}
-                                    onSizeChange={setSize}
-                                    opacity={opacity}
-                                    onOpacityChange={setOpacity}
-                                    currentStrokeOptions={strokeOpts}
-                                    onStrokeOptionsChange={setStrokeOpts}
-                                />
-                            )}
-                        </div>
-                        <div className="absolute bottom-20 left-6 flex items-center gap-2 z-[40]">
-                            <button onClick={undo} disabled={historyIndex < 0} className="p-4 bg-white dark:bg-black/80 rounded-2xl shadow-xl border border-white/20 disabled:opacity-30"><IconUndo className="w-7 h-7 text-primary" /></button>
-                            <button onClick={redo} disabled={redoStack.length === 0} className="p-4 bg-white dark:bg-black/80 rounded-2xl shadow-xl border border-white/20 disabled:opacity-30"><IconRedo className="w-7 h-7 text-primary" /></button>
-                            {clipboard && <button onClick={pasteFromClipboard} className="p-4 bg-white dark:bg-black/80 rounded-2xl shadow-xl border border-white/20 text-green-500 animate-in slide-in-from-bottom-2"><IconClipboard className="w-7 h-7" /></button>}
-                        </div>
-                    </>
+                    <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-[40]">
+                        <WhiteboardToolbar
+                            tool={tool}
+                            setTool={setTool}
+                            presets={presets}
+                            activePresetIdx={activePresetIdx}
+                            onSelectPreset={handleSelectPreset}
+                            onUpdatePreset={handleUpdatePreset}
+                            stylusOnly={stylusOnly}
+                            setStylusOnly={setStylusOnly}
+                            showLayers={showLayers}
+                            setShowLayers={setShowLayers}
+                            onImageUpload={(e) => { if (e.target?.files) setImportingFile(e.target.files[0]) }}
+                            currentColor={color}
+                            onSetColor={setColor}
+                            fillColor={fillColor}
+                            onSetFillColor={setFillColor}
+                            isFilled={isFilled}
+                            onToggleFill={setIsFilled}
+                            isStroked={isStroked}
+                            onToggleStroke={setIsStroked}
+                            drawStyle={drawStyle}
+                            setDrawStyle={setDrawStyle}
+                            currentSize={size}
+                            onSizeChange={setSize}
+                            opacity={opacity}
+                            onOpacityChange={setOpacity}
+                            currentStrokeOptions={strokeOpts}
+                            onStrokeOptionsChange={setStrokeOpts}
+                            undo={undo}
+                            redo={redo}
+                            canUndo={historyIndex >= 0}
+                            canRedo={redoStack.length > 0}
+                            cameraScale={camera.scale}
+                            setCamera={setCamera}
+                            onZoomExtents={handleZoomExtents}
+                            isTeacher={isTeacher}
+                            isSidePanelOpen={isSidePanelOpen}
+                            setIsSidePanelOpen={setIsSidePanelOpen}
+                            eraserTargets={eraserTargets}
+                            setEraserTargets={setEraserTargets}
+                            eraserLayerScope={eraserLayerScope}
+                            setEraserLayerScope={setEraserLayerScope}
+                            eraserMode={eraserMode}
+                            setEraserMode={setEraserMode}
+                        />
+                    </div>
+                )}
+                {isTeacher && clipboard && (
+                    <div className="absolute bottom-20 left-6 z-[40]">
+                        <button 
+                            onClick={pasteFromClipboard} 
+                            className="p-3 bg-white/90 dark:bg-black/80 backdrop-blur-md rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 text-green-500 hover:scale-105 transition-all flex items-center gap-1.5 font-bold text-xs"
+                            title="Pegar elemento del portapapeles"
+                        >
+                            <IconClipboard className="w-4 h-4" /> 
+                            <span>Pegar</span>
+                        </button>
+                    </div>
                 )}
 
                 <div
@@ -1809,7 +2049,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                 </div>
 
                 {isTeacher && showLayers && <LayerManager layers={layers} activeLayerId={activeLayerId} onSetActiveLayer={setActiveLayerId} onAddLayer={addLayer} onDeleteLayer={handleDeleteLayer} onToggleVisibility={toggleLayerVisibility} onMoveLayer={moveLayerOrder} onUpdateLayer={updateLayer} onClose={() => setShowLayers(false)} />}
-                {isTeacher && showSettings && <WhiteboardSettings bgColor={boardSettings.bgColor} bgImageUrl={boardSettings.bgImageUrl} snapshots={snapshots} boardDimensions={{ width: boardSettings.width, height: boardSettings.height }} onClose={() => setShowSettings(false)} onUpdateSettings={updateBoardSettings} grid={boardSettings.grid} onUploadBackground={async (e) => { if (e.target.files) { const file = e.target.files[0]; const resizedBlob = await resizeImage(file, 2048); const url = await uploadFile('whiteboard-assets/backgrounds', new File([resizedBlob], file.name)); const img = new Image(); img.src = URL.createObjectURL(resizedBlob); img.onload = () => updateBoardSettings({ bgImageUrl: url }); } }} onRemoveBackground={() => updateBoardSettings({ bgImageUrl: deleteField() })} onSaveSnapshot={handleSaveSnapshot} onLoadSnapshot={restoreSnapshot} onDeleteSnapshot={deleteSnapshot} onClearBoard={handleClearBoard} />}
+                {isTeacher && showSettings && <WhiteboardSettings bgColor={boardSettings.bgColor} bgImageUrl={boardSettings.bgImageUrl} snapshots={snapshots} boardDimensions={{ width: boardSettings.width, height: boardSettings.height }} onClose={() => setShowSettings(false)} onUpdateSettings={updateBoardSettings} grid={boardSettings.grid} onUploadBackground={async (e) => { if (e.target.files) { const file = e.target.files[0]; const resizedBlob = await resizeImage(file, 2048); const url = await uploadFile('whiteboard-assets/backgrounds', new File([resizedBlob], file.name)); const img = new Image(); img.src = URL.createObjectURL(resizedBlob); img.onload = () => updateBoardSettings({ bgImageUrl: url }); } }} onRemoveBackground={() => updateBoardSettings({ bgImageUrl: deleteField() })} onSaveSnapshot={handleSaveSnapshot} onLoadSnapshot={restoreSnapshot} onDeleteSnapshot={deleteSnapshot} onClearBoard={handleClearBoard} stylusOnly={stylusOnly} setStylusOnly={setStylusOnly} />}
 
                 {importingFile && <ImageImportModal file={importingFile} onClose={() => setImportingFile(null)} onConfirm={handleImageProcessed} initialTeacherOnly={editingImageId ? editingImageTeacherOnly : false} />}
 

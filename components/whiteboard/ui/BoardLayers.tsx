@@ -93,9 +93,14 @@ export const BoardLayers = React.memo((props: BoardLayersProps) => {
                             const displayOpacity = img.opacity ?? 1;
                             const teacherVisual = img.teacherOnly && isTeacher;
                             return (
-                                <g key={img.id} transform={`translate(${img.x},${img.y}) rotate(${img.rotation},${img.width / 2},${img.height / 2})`} opacity={teacherVisual ? displayOpacity * 0.6 : displayOpacity}>
+                                <g 
+                                    key={img.id} 
+                                    transform={`translate(${img.x},${img.y}) rotate(${img.rotation},${img.width / 2},${img.height / 2})`} 
+                                    opacity={teacherVisual ? displayOpacity * 0.6 : displayOpacity}
+                                    style={{ pointerEvents: (isTeacher && tool === 'move') ? 'auto' : 'none' }}
+                                >
                                     {teacherVisual && <rect width={img.width} height={img.height} fill="none" stroke="#ef4444" strokeWidth={4 / cameraScale} strokeDasharray="8 8" opacity="0.8" />}
-                                    <image href={img.url} width={img.width} height={img.height} clipPath={`url(#clip-${img.id})`} />
+                                    <image href={img.url} width={img.width} height={img.height} clipPath={`url(#clip-${img.id})`} onDragStart={(e) => e.preventDefault()} />
                                     {selectedId === img.id && isTeacher && <><rect width={img.width} height={img.height} fill="none" stroke="var(--color-primary)" strokeWidth={4 / cameraScale} strokeDasharray="8 8" opacity="0.5" /><circle cx={img.width} cy={img.height} r={12 / cameraScale} fill="white" stroke="var(--color-primary)" strokeWidth={2 / cameraScale} cursor="nwse-resize" data-handle="resize" /><circle cx={img.width / 2} cy={-25 / cameraScale} r={10 / cameraScale} fill="var(--color-primary)" cursor="alias" data-handle="rotate" /></>}
                                 </g>
                             );
@@ -126,6 +131,7 @@ export const BoardLayers = React.memo((props: BoardLayersProps) => {
                                     key={txt.id}
                                     transform={`translate(${txt.x},${txt.y}) rotate(${txt.rotation},${txt.width / 2},${txt.height / 2})`}
                                     opacity={teacherVisual ? displayOpacity * 0.6 : displayOpacity}
+                                    style={{ pointerEvents: (isTeacher && (tool === 'move' || tool === 'text')) ? 'auto' : 'none' }}
                                     onDoubleClick={(e) => {
                                         if (isTeacher) {
                                             e.stopPropagation();

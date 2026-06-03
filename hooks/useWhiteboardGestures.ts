@@ -33,10 +33,11 @@ interface UseWhiteboardGesturesProps {
     lassoPoints: Point[] | null;
     onLassoEnd: (loop: Point[]) => void;
     updateItemInFirestore: (id: string, type: 'image' | 'text', data: any) => void;
-    transformMode: 'drag' | 'resize' | 'rotate' | 'crop-handle' | 'strokes-drag' | 'strokes-resize' | 'strokes-rotate' | 'strokes-move' | null;
+    transformMode: 'drag' | 'resize' | 'rotate' | 'crop-handle' | 'strokes-drag' | 'strokes-resize' | 'strokes-rotate' | 'strokes-move' | 'pan' | null;
     drawStyle?: DrawStyle;
     activeStrokes: WhiteboardStroke[];
     lockedLayerIds: Set<string>;
+    eraserMode: 'freehand' | 'rect' | 'circle';
 }
 
 export const useWhiteboardGestures = ({
@@ -44,11 +45,47 @@ export const useWhiteboardGestures = ({
     setLassoPoints, setSelectedId, setSelectedType, setTransformMode, selectedId, isCropMode,
     activeImages, activeTexts, setImages, setTexts, strokeSelectionBounds, selectedStrokeIds,
     initialTransformParams, tempStrokeTransform, setTempStrokeTransform, finalizeStrokeTransform,
-    lassoPoints, onLassoEnd, updateItemInFirestore, transformMode, drawStyle = 'ink', activeStrokes, lockedLayerIds
+    lassoPoints, onLassoEnd, updateItemInFirestore, transformMode, drawStyle = 'ink', activeStrokes, lockedLayerIds,
+    eraserMode
 }: UseWhiteboardGesturesProps) => {
 
     const [currentStroke, setCurrentStroke] = useState<Point[] | null>(null);
     const [isInteracting, setIsInteracting] = useState(false);
+
+    const spacePressed = useRef(false);
+    const longPressTimeout = useRef<any>(null);
+    const startPointerPos = useRef<{ x: number, y: number } | null>(null);
+
+    const finishPolyline = () => {
+        if (polylinePoints.current.length > 1) {
+            onStrokeComplete([...polylinePoints.current]);
+        }
+        polylinePoints.current = [];
+        setCurrentStroke(null);
+        isDrawing.current = false;
+        setIsInteracting(false);
+    };
+
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === ' ' || e.code === 'Space') {
+                if (document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA' && !(document.activeElement as HTMLElement)?.isContentEditable) {
+                    spacePressed.current = true;
+                }
+            }
+        };
+        const handleKeyUp = (e: KeyboardEvent) => {
+            if (e.key === ' ' || e.code === 'Space') {
+                spacePressed.current = false;
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        window.addEventListener('keyup', handleKeyUp);
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('keyup', handleKeyUp);
+        };
+    }, []);
 
     // Track active pointers for multi-touch
     const activePointers = useRef<Map<number, { x: number, y: number, type: string }>>(new Map());
@@ -159,6 +196,15 @@ export const useWhiteboardGestures = ({
         if (shapes.includes(tool)) {
             if (tool === 'polyline') {
                 e.stopPropagation();
+
+                // Setup long press finish detection
+                startPointerPos.current = { x: e.clientX, y: e.clientY };
+                if (longPressTimeout.current) clearTimeout(longPressTimeout.current);
+                longPressTimeout.current = setTimeout(() => {
+                    finishPolyline();
+                    longPressTimeout.current = null;
+                }, 750); // 750ms long press to finish
+
                 if (e.detail === 2) { // Double click to finish
                     if (polylinePoints.current.length > 1) {
                         onStrokeComplete([...polylinePoints.current]);
@@ -166,6 +212,10 @@ export const useWhiteboardGestures = ({
                         setCurrentStroke(null);
                         isDrawing.current = false;
                         setIsInteracting(false);
+                    }
+                    if (longPressTimeout.current) {
+                        clearTimeout(longPressTimeout.current);
+                        longPressTimeout.current = null;
                     }
                     return;
                 }
@@ -217,72 +267,77 @@ export const useWhiteboardGestures = ({
         }
 
         // --- STROKE TRANSFORM / SELECTION LOGIC ---
-        if (tool === 'lasso' && isTeacher) {
+        const isLassoOrMove = tool === 'lasso' || tool === 'move';
+        if (isLassoOrMove && isTeacher) {
             if (strokeSelectionBounds && selectedStrokeIds.length > 0) {
                 const target = e.target as SVGElement;
                 const handleType = target.getAttribute('data-handle');
 
-                const initCommonParams = () => ({
-                    startX: x, startY: y,
-                    initialTx: tempStrokeTransform.x,
-                    initialTy: tempStrokeTransform.y,
-                    initialScale: tempStrokeTransform.scale,
-                    initialRotation: tempStrokeTransform.rotation,
-                    centerX: strokeSelectionBounds.cx,
-                    centerY: strokeSelectionBounds.cy
-                });
+                if (handleType && handleType.startsWith('strokes-')) {
+                    const initCommonParams = () => ({
+                        startX: x, startY: y,
+                        initialTx: tempStrokeTransform.x,
+                        initialTy: tempStrokeTransform.y,
+                        initialScale: tempStrokeTransform.scale,
+                        initialRotation: tempStrokeTransform.rotation,
+                        centerX: strokeSelectionBounds.cx,
+                        centerY: strokeSelectionBounds.cy
+                    });
 
-                if (handleType === 'strokes-move') {
-                    setTransformMode('strokes-move');
-                    initialTransformParams.current = initCommonParams();
-                    return;
-                }
+                    if (handleType === 'strokes-move') {
+                        setTransformMode('strokes-move');
+                        initialTransformParams.current = initCommonParams();
+                        return;
+                    }
 
-                const common = initCommonParams();
-                const visualCx = common.centerX + common.initialTx;
-                const visualCy = common.centerY + common.initialTy;
+                    const common = initCommonParams();
+                    const visualCx = common.centerX + common.initialTx;
+                    const visualCy = common.centerY + common.initialTy;
 
-                if (handleType === 'strokes-resize') {
-                    setTransformMode('strokes-resize');
-                    initialTransformParams.current = {
-                        ...common,
-                        startDistance: Math.hypot(x - visualCx, y - visualCy),
-                    };
-                    return;
-                }
+                    if (handleType === 'strokes-resize') {
+                        setTransformMode('strokes-resize');
+                        initialTransformParams.current = {
+                            ...common,
+                            startDistance: Math.hypot(x - visualCx, y - visualCy),
+                        };
+                        return;
+                    }
 
-                if (handleType === 'strokes-rotate') {
-                    setTransformMode('strokes-rotate');
-                    initialTransformParams.current = {
-                        ...common,
-                        startAngle: Math.atan2(y - visualCy, x - visualCx),
-                    };
-                    return;
-                }
+                    if (handleType === 'strokes-rotate') {
+                        setTransformMode('strokes-rotate');
+                        initialTransformParams.current = {
+                            ...common,
+                            startAngle: Math.atan2(y - visualCy, x - visualCx),
+                        };
+                        return;
+                    }
 
-                const margin = 20 / camera.scale;
-                const currentTx = tempStrokeTransform.x;
-                const currentTy = tempStrokeTransform.y;
-                const boxX = strokeSelectionBounds.x + currentTx;
-                const boxY = strokeSelectionBounds.y + currentTy;
+                    const margin = 20 / camera.scale;
+                    const currentTx = tempStrokeTransform.x;
+                    const currentTy = tempStrokeTransform.y;
+                    const boxX = strokeSelectionBounds.x + currentTx;
+                    const boxY = strokeSelectionBounds.y + currentTy;
 
-                if (handleType === 'strokes-drag' ||
-                    (x >= boxX - margin && x <= boxX + strokeSelectionBounds.width + margin &&
-                        y >= boxY - margin && y <= boxY + strokeSelectionBounds.height + margin)) {
+                    if (handleType === 'strokes-drag' ||
+                        (x >= boxX - margin && x <= boxX + strokeSelectionBounds.width + margin &&
+                            y >= boxY - margin && y <= boxY + strokeSelectionBounds.height + margin)) {
 
-                    setTransformMode('strokes-drag');
-                    initialTransformParams.current = initCommonParams();
-                    return;
+                        setTransformMode('strokes-drag');
+                        initialTransformParams.current = initCommonParams();
+                        return;
+                    }
                 }
             }
 
-            setLassoPoints([{ x, y, pressure: 0.5 }]);
-            setTempStrokeTransform({ x: 0, y: 0, scale: 1, rotation: 0 });
-            isDrawing.current = true;
-            return;
+            if (tool === 'lasso') {
+                setLassoPoints([{ x, y, pressure: 0.5 }]);
+                setTempStrokeTransform({ x: 0, y: 0, scale: 1, rotation: 0 });
+                isDrawing.current = true;
+                return;
+            }
         }
 
-        // Single Item Move
+        // Single Item Move / Empty canvas selection for Move tool
         if (tool === 'move' || isCropMode) {
             const target = e.target as SVGElement;
             const handleType = target.getAttribute('data-handle');
@@ -298,7 +353,18 @@ export const useWhiteboardGestures = ({
                 const clickedImg = [...selectableImages].reverse().find(img => x >= img.x && x <= img.x + img.width && y >= img.y && y <= img.y + img.height);
                 if (clickedImg) { setSelectedId(clickedImg.id); setSelectedType('image'); setTransformMode('drag'); return; }
 
+                // Clicked empty canvas:
                 setSelectedId(null); setSelectedType(null);
+
+                if (spacePressed.current || e.pointerType === 'touch') {
+                    setTransformMode('pan');
+                } else {
+                    // Stylus/Mouse draws lasso selection loop on empty canvas
+                    setLassoPoints([{ x, y, pressure: 0.5 }]);
+                    setTempStrokeTransform({ x: 0, y: 0, scale: 1, rotation: 0 });
+                    setTransformMode(null);
+                    isDrawing.current = true;
+                }
             }
             return;
         }
@@ -307,13 +373,26 @@ export const useWhiteboardGestures = ({
         if (tool === 'pen' || tool === 'eraser') {
             isDrawing.current = true;
             lastDrawPoint.current = { x, y, time: Date.now() };
-            const inputPressure = e.pointerType === 'pen' ? e.pressure : 0.5;
-            const mixedPressure = inputPressure * (strokeOpts.pressureWeight ?? 1);
-            setCurrentStroke([{ x, y, pressure: mixedPressure }]);
+            if (tool === 'eraser' && eraserMode !== 'freehand') {
+                shapeStartPoint.current = { x, y, pressure: 0.5 };
+                setCurrentStroke([{ x, y, pressure: 0.5 }]);
+            } else {
+                const inputPressure = e.pointerType === 'pen' ? e.pressure : 0.5;
+                const mixedPressure = inputPressure * (strokeOpts.pressureWeight ?? 1);
+                setCurrentStroke([{ x, y, pressure: mixedPressure }]);
+            }
         }
     };
 
     const handlePointerMove = (e: React.PointerEvent) => {
+        if (longPressTimeout.current && startPointerPos.current) {
+            const dist = Math.hypot(e.clientX - startPointerPos.current.x, e.clientY - startPointerPos.current.y);
+            if (dist > 8) {
+                clearTimeout(longPressTimeout.current);
+                longPressTimeout.current = null;
+            }
+        }
+
         if (activePointers.current.has(e.pointerId)) {
             activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
         }
@@ -358,7 +437,7 @@ export const useWhiteboardGestures = ({
             return;
         }
 
-        if ((tool === 'hand' || !isTeacher) && activePointers.current.has(e.pointerId)) {
+        if (((tool === 'hand' || !isTeacher) || (tool === 'move' && transformMode === 'pan')) && activePointers.current.has(e.pointerId)) {
             if (isNavLocked) return;
             setCamera(prev => ({
                 ...prev,
@@ -392,12 +471,12 @@ export const useWhiteboardGestures = ({
                 return;
             }
 
-            if (tool === 'lasso' && isDrawing.current) {
+            if ((tool === 'lasso' || tool === 'move') && isDrawing.current) {
                 setLassoPoints(prev => [...(prev || []), { x, y, pressure: 0.5 }]);
                 return;
             }
 
-            if (tool === 'lasso' && selectedStrokeIds.length > 0 && strokeSelectionBounds) {
+            if ((tool === 'lasso' || tool === 'move') && selectedStrokeIds.length > 0 && strokeSelectionBounds) {
                 const params = initialTransformParams.current;
                 if (!params) return;
 
@@ -462,19 +541,30 @@ export const useWhiteboardGestures = ({
             }
 
             if (isDrawing.current && (tool === 'pen' || tool === 'eraser')) {
-                const currentTime = Date.now();
-                if (lastDrawPoint.current) {
-                    const dist = Math.hypot(x - lastDrawPoint.current.x, y - lastDrawPoint.current.y);
-                    const throttle = strokeOpts.pointThrottle ?? 2;
-                    if (dist < throttle / camera.scale) return;
+                if (tool === 'eraser' && eraserMode !== 'freehand') {
+                    if (shapeStartPoint.current) {
+                        setCurrentStroke([shapeStartPoint.current, { x, y, pressure: 0.5 }]);
+                    }
+                } else {
+                    const currentTime = Date.now();
+                    if (lastDrawPoint.current) {
+                        const dist = Math.hypot(x - lastDrawPoint.current.x, y - lastDrawPoint.current.y);
+                        const throttle = strokeOpts.pointThrottle ?? 2;
+                        if (dist < throttle / camera.scale) return;
+                    }
+                    lastDrawPoint.current = { x, y, time: currentTime };
+                    setCurrentStroke(prev => [...(prev || []), { x, y, pressure: 0.5 }]);
                 }
-                lastDrawPoint.current = { x, y, time: currentTime };
-                setCurrentStroke(prev => [...(prev || []), { x, y, pressure: 0.5 }]);
             }
         });
     };
 
     const handlePointerUp = async (e: React.PointerEvent) => {
+        if (longPressTimeout.current) {
+            clearTimeout(longPressTimeout.current);
+            longPressTimeout.current = null;
+        }
+
         activePointers.current.delete(e.pointerId);
 
         // End middle-button panning if it was active
@@ -504,7 +594,7 @@ export const useWhiteboardGestures = ({
         if (!gestureStart.current) {
             const { x, y } = screenToWorld(e.clientX, e.clientY);
 
-            if (tool === 'lasso' && isDrawing.current && lassoPoints) {
+            if ((tool === 'lasso' || tool === 'move') && isDrawing.current && lassoPoints) {
                 isDrawing.current = false;
                 const closedLoop = [...lassoPoints, lassoPoints[0]];
                 onLassoEnd(closedLoop);
@@ -513,7 +603,7 @@ export const useWhiteboardGestures = ({
                 return;
             }
 
-            if (tool === 'lasso' && (transformMode?.startsWith('strokes-'))) {
+            if ((tool === 'lasso' || tool === 'move') && (transformMode?.startsWith('strokes-'))) {
                 setTransformMode(null);
                 initialTransformParams.current = null;
                 setIsInteracting(false);
@@ -528,12 +618,16 @@ export const useWhiteboardGestures = ({
                 }
                 setTransformMode(null);
                 setIsInteracting(false);
+            } else if (transformMode === 'pan') {
+                setTransformMode(null);
+                setIsInteracting(false);
             }
 
             if (isDrawing.current && currentStroke && (tool === 'pen' || tool === 'eraser')) {
                 onStrokeComplete([...currentStroke]);
                 setCurrentStroke(null);
                 isDrawing.current = false;
+                shapeStartPoint.current = null;
                 setIsInteracting(false);
             }
 
@@ -549,6 +643,11 @@ export const useWhiteboardGestures = ({
     };
 
     const handlePointerCancel = (e: React.PointerEvent) => {
+        if (longPressTimeout.current) {
+            clearTimeout(longPressTimeout.current);
+            longPressTimeout.current = null;
+        }
+
         activePointers.current.delete(e.pointerId);
         if (activePointers.current.size < 2) {
             gestureStart.current = null;
@@ -576,6 +675,7 @@ export const useWhiteboardGestures = ({
         handlePointerCancel,
         currentStroke,
         lassoPoints,
-        isInteracting
+        isInteracting,
+        finishPolyline
     };
 };

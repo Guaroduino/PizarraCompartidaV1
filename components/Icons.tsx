@@ -583,11 +583,7 @@ export const IconThemeColor: React.FC<IconProps> = (props) => (
 
 export const IconBorder: React.FC<IconProps> = (props) => (
     <BaseIcon {...props}>
-        <rect width="18" height="18" x="3" y="3" rx="2" />
-        <path d="M3 9h18" />
-        <path d="M3 15h18" />
-        <path d="M9 3v18" />
-        <path d="M15 3v18" />
+        <rect x="5" y="5" width="14" height="14" rx="2" strokeWidth="2.5" />
     </BaseIcon>
 );
 
@@ -641,5 +637,51 @@ export const IconImage: React.FC<IconProps> = (props) => (
         <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
         <circle cx="8.5" cy="8.5" r="1.5" />
         <polyline points="21 15 16 10 5 21" />
+    </BaseIcon>
+);
+
+export const IconBrush: React.FC<IconProps> = (props) => (
+    <BaseIcon {...props}>
+        <path d="m12 22 1-1c1.4-1.4 2.4-3.2 3-5.2l.5-1.8c.1-.5-.2-1-.7-1.1L12.5 12c-2 0-3.9 1-5.3 2.5L6.2 15.5Z" />
+        <path d="m14 14 3-3" />
+        <path d="M17 11a4.2 4.2 0 0 0-.6-5.8l-1.6-1.6a4.2 4.2 0 0 0-5.8-.6L4 8" />
+    </BaseIcon>
+);
+
+export const IconEraser: React.FC<IconProps> = (props) => (
+    <BaseIcon {...props}>
+        <path d="m7 21-4.3-4.3c-.8-.8-.8-2 0-2.8l11-11c.8-.8 2-.8 2.8 0L21 7.3c.8.8.8 2 0 2.8L11 21H7Z" />
+        <path d="M17 17H7" />
+    </BaseIcon>
+);
+
+export const IconLine: React.FC<IconProps> = (props) => (
+    <BaseIcon {...props}>
+        <line x1="5" y1="19" x2="19" y2="5" />
+    </BaseIcon>
+);
+
+export const IconPolyline: React.FC<IconProps> = (props) => (
+    <BaseIcon {...props}>
+        <polyline points="5 19 10 9 15 15 19 5" />
+    </BaseIcon>
+);
+
+export const IconCircle: React.FC<IconProps> = (props) => (
+    <BaseIcon {...props}>
+        <circle cx="12" cy="12" r="9" />
+    </BaseIcon>
+);
+
+export const IconArc: React.FC<IconProps> = (props) => (
+    <BaseIcon {...props}>
+        <path d="M5 19c0-8 7-14 14-14" />
+    </BaseIcon>
+);
+
+export const IconSelect: React.FC<IconProps> = (props) => (
+    <BaseIcon {...props}>
+        <path d="m3 3 7.07 16.97 2.51-7.39 7.39-2.51L3 3z" />
+        <path d="m13 13 6 6" />
     </BaseIcon>
 );

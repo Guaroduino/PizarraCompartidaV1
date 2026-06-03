@@ -15,7 +15,11 @@ export const uploadFile = async (path: string, file: File): Promise<string> => {
   const fileName = `${Date.now()}-${file.name.replace(/\s/g, '_')}`;
   const storageRef = ref(storage, `${path}/${fileName}`);
   
-  const snapshot = await uploadBytes(storageRef, file);
+  const metadata = {
+    contentType: file.type || 'image/png'
+  };
+  
+  const snapshot = await uploadBytes(storageRef, file, metadata);
   const downloadURL = await getDownloadURL(snapshot.ref);
   
   return downloadURL;

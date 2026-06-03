@@ -40,6 +40,7 @@ export interface WhiteboardAction {
     targetId: string;
     prevData?: any;
     newData?: any;
+    data?: any;
 }
 
 export interface WhiteboardSnapshot {

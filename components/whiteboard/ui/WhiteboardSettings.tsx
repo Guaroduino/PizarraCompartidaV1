@@ -20,6 +20,8 @@ interface WhiteboardSettingsProps {
     onLoadSnapshot: (snapshot: WhiteboardSnapshot) => void;
     onDeleteSnapshot: (id: string) => void;
     onClearBoard: () => void;
+    stylusOnly?: boolean;
+    setStylusOnly?: (val: boolean) => void;
 }
 
 export const WhiteboardSettings: React.FC<WhiteboardSettingsProps> = (props) => {
@@ -33,7 +35,8 @@ export const WhiteboardSettings: React.FC<WhiteboardSettingsProps> = (props) => 
 const SettingsContent: React.FC<WhiteboardSettingsProps> = ({ 
     bgColor, bgImageUrl, snapshots, boardDimensions, grid, 
     onClose, onUpdateSettings, onUploadBackground, onRemoveBackground, 
-    onSaveSnapshot, onLoadSnapshot, onDeleteSnapshot, onClearBoard 
+    onSaveSnapshot, onLoadSnapshot, onDeleteSnapshot, onClearBoard,
+    stylusOnly, setStylusOnly
 }) => {
 
     const safeGrid = grid || {
@@ -85,6 +88,29 @@ const SettingsContent: React.FC<WhiteboardSettingsProps> = ({
                             </div>
                         </div>
                     </div>
+                )}
+
+                {setStylusOnly && stylusOnly !== undefined && (
+                    <>
+                        <div className="border-t border-gray-200 dark:border-gray-700 pt-4"></div>
+                        <div>
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <p className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase">Solo Lápiz (Stylus)</p>
+                                    <p className="text-[10px] text-gray-400">Ignorar toques táctiles al dibujar</p>
+                                </div>
+                                <label className="relative inline-flex items-center cursor-pointer">
+                                    <input 
+                                        type="checkbox" 
+                                        checked={stylusOnly} 
+                                        onChange={(e) => setStylusOnly(e.target.checked)} 
+                                        className="sr-only peer"
+                                    />
+                                    <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-primary dark:peer-focus:ring-primary rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-gray-600 peer-checked:bg-primary"></div>
+                                </label>
+                            </div>
+                        </div>
+                    </>
                 )}
 
                 <div className="border-t border-gray-200 dark:border-gray-700 pt-4"></div>

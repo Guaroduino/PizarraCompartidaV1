@@ -1,6 +1,6 @@
 
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { doc, updateDoc, writeBatch, collection, deleteField } from "firebase/firestore";
+import { doc, updateDoc, writeBatch, collection, deleteField, deleteDoc } from "firebase/firestore";
 import { db } from '../services/firebase';
 import type { WhiteboardStroke, WhiteboardImage, WhiteboardText } from '../types';
 import type { BoundingBox, TransformState, WhiteboardAction, ExtendedWhiteboardText } from '../types/whiteboardTypes';
@@ -34,7 +34,7 @@ export const useWhiteboardSelection = ({
     const [tempStrokeTransform, setTempStrokeTransform] = useState<TransformState>({ x: 0, y: 0, scale: 1, rotation: 0 });
     
     // Transform State
-    const [transformMode, setTransformMode] = useState<'drag' | 'resize' | 'rotate' | 'crop-handle' | 'strokes-drag' | 'strokes-resize' | 'strokes-rotate' | 'strokes-move' | null>(null);
+    const [transformMode, setTransformMode] = useState<'drag' | 'resize' | 'rotate' | 'crop-handle' | 'strokes-drag' | 'strokes-resize' | 'strokes-rotate' | 'strokes-move' | 'pan' | null>(null);
     
     // Clipboard
     const [clipboard, setClipboard] = useState<{ type: 'strokes' | 'images' | 'texts', data: any[] } | null>(null);
@@ -104,25 +104,15 @@ export const useWhiteboardSelection = ({
             setSelectedStrokeIds([]);
             setStrokeSelectionBounds(null);
         } else if (selectedId && selectedType) {
-            // Handle single item deletion
-            if (selectedId.startsWith('temp_')) {
-                // Should be handled by parent if it's temp, but images/texts usually real doc writes immediately.
-                // Assuming images/texts are always real docs for now or parent handles deletion via updateItemInFirestore equivalent?
-                // Actually WhiteboardModule doesn't pass a deleter for single items here, it does it directly below.
-                // But wait, Images/Texts logic:
-                // WhiteboardModule.tsx handles creation.
-                // Here we delete. 
-                // If it's a real doc, we update deleted: true.
-            }
-            
             const coll = selectedType === 'image' ? 'whiteboardImages' : 'whiteboardTexts';
-            // Only attempt delete if it looks like a real ID (or just try, if it fails it fails)
             if (!selectedId.startsWith('temp_')) {
-                await updateDoc(doc(db, coll, selectedId), { deleted: true });
+                const item = (selectedType === 'image' ? activeImages : activeTexts).find(i => i.id === selectedId);
+                if (item) {
+                    const { id: _, ...data } = item;
+                    recordAction({ type: 'delete', targetType: selectedType, targetId: selectedId, data });
+                    await deleteDoc(doc(db, coll, selectedId));
+                }
             } else {
-               // If temp, we can't easily delete from here without a callback. 
-               // For now, let's assume single items are synced fast or we'd need a similar callback.
-               // Given stroke issue was main complaint, leaving single item logic as is but safe-guarded slightly.
                console.warn("Cannot delete temp item from selection hook yet");
             }
             
