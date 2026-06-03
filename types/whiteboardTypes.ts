@@ -32,6 +32,7 @@ export interface ToolPreset {
     size: number;
     opacity: number;
     options: ExtendedStrokeOptions;
+    drawStyle?: DrawStyle;
 }
 
 export interface WhiteboardAction {

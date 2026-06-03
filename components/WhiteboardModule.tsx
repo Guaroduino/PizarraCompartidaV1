@@ -145,6 +145,9 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
             setSize(p.size);
             setOpacity(p.opacity);
             setStrokeOpts(p.options);
+            if (p.drawStyle) {
+                setDrawStyle(p.drawStyle);
+            }
         }
     }, [activePresetIdx, presets]);
 
@@ -177,16 +180,13 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
     }, [tool, drawStyle, activePresetIdx, presets, stylusOnly, STORAGE_KEY, user, isGuestMode, fillColor, isFilled, isStroked]);
 
     const handleUpdatePreset = (index: number, updates: Partial<ToolPreset>) => {
-        setPresets(prev => {
-            const newPresets = [...prev];
-            newPresets[index] = { ...newPresets[index], ...updates };
-            return newPresets;
-        });
+        setPresets(prev => prev.map((p, idx) => idx === index ? { ...p, ...updates } : p));
         if (index === activePresetIdx) {
             if (updates.color) setColor(updates.color);
             if (updates.size) setSize(updates.size);
             if (updates.opacity) setOpacity(updates.opacity);
             if (updates.options) setStrokeOpts(updates.options);
+            if (updates.drawStyle) setDrawStyle(updates.drawStyle);
         }
     };
 

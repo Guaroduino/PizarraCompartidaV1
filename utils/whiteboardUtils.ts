@@ -22,7 +22,8 @@ export const DEFAULT_PRESETS: ToolPreset[] = [
         color: '#000000', 
         size: 3, 
         opacity: 1, 
-        options: { thinning: 0.5, smoothing: 0.5, streamline: 0.5, simulatePressure: true, pressureWeight: 0.5, velocityWeight: 0.5, velocityThreshold: 20, pointThrottle: 2, filled: false, stroked: true, roughness: 0, strokeWidthJitter: 0, fillRoughness: 0 } 
+        options: { thinning: 0.5, smoothing: 0.5, streamline: 0.5, simulatePressure: true, pressureWeight: 0.5, velocityWeight: 0.5, velocityThreshold: 20, pointThrottle: 2, filled: false, stroked: true, roughness: 0, strokeWidthJitter: 0, fillRoughness: 0 },
+        drawStyle: 'ink'
     },
     { 
         id: 'p2',
@@ -30,7 +31,8 @@ export const DEFAULT_PRESETS: ToolPreset[] = [
         color: '#3b82f6', 
         size: 6, 
         opacity: 1, 
-        options: { thinning: 0.1, smoothing: 0.5, streamline: 0.6, simulatePressure: false, pressureWeight: 0.2, velocityWeight: 0.1, velocityThreshold: 20, pointThrottle: 3, filled: false, stroked: true, roughness: 0, strokeWidthJitter: 0, fillRoughness: 0 } 
+        options: { thinning: 0.1, smoothing: 0.5, streamline: 0.6, simulatePressure: false, pressureWeight: 0.2, velocityWeight: 0.1, velocityThreshold: 20, pointThrottle: 3, filled: false, stroked: true, roughness: 0, strokeWidthJitter: 0, fillRoughness: 0 },
+        drawStyle: 'freehand'
     },
     { 
         id: 'p3',
@@ -38,7 +40,8 @@ export const DEFAULT_PRESETS: ToolPreset[] = [
         color: '#f59e0b', 
         size: 16, 
         opacity: 0.4, 
-        options: { thinning: -0.6, smoothing: 0.7, streamline: 0.4, simulatePressure: false, pressureWeight: 0.1, velocityWeight: 0, velocityThreshold: 20, pointThrottle: 5, filled: false, stroked: true, roughness: 0, strokeWidthJitter: 0, fillRoughness: 0 } 
+        options: { thinning: -0.6, smoothing: 0.7, streamline: 0.4, simulatePressure: false, pressureWeight: 0.1, velocityWeight: 0, velocityThreshold: 20, pointThrottle: 5, filled: false, stroked: true, roughness: 0, strokeWidthJitter: 0, fillRoughness: 0 },
+        drawStyle: 'freehand'
     },
     { 
         id: 'p4',
@@ -46,7 +49,8 @@ export const DEFAULT_PRESETS: ToolPreset[] = [
         color: '#ef4444', 
         size: 2, 
         opacity: 0.9, 
-        options: { thinning: 0.7, smoothing: 0.3, streamline: 0.4, simulatePressure: true, pressureWeight: 0.8, velocityWeight: 0.5, velocityThreshold: 8, pointThrottle: 1, filled: false, stroked: true, roughness: 2, strokeWidthJitter: 0.5, fillRoughness: 0 } 
+        options: { thinning: 0.7, smoothing: 0.3, streamline: 0.4, simulatePressure: true, pressureWeight: 0.8, velocityWeight: 0.5, velocityThreshold: 8, pointThrottle: 1, filled: false, stroked: true, roughness: 2, strokeWidthJitter: 0.5, fillRoughness: 0 },
+        drawStyle: 'ink'
     },
 ];
 

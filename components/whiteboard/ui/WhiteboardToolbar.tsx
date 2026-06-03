@@ -474,11 +474,11 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = (props) => {
 
                     {/* Consolidated Brush Popover */}
                     {showBrushPanel && onSizeChange && currentSize !== undefined && currentStrokeOptions && onStrokeOptionsChange && (
-                        <div className="absolute bottom-full mb-3 left-1/2 -translate-x-1/2 bg-white dark:bg-dark-card border border-gray-200 dark:border-gray-700 rounded-2xl shadow-2xl p-4 w-72 z-[130] flex flex-col gap-4 animate-in slide-in-from-bottom-2 duration-150 cursor-default" onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
+                        <div className="absolute bottom-full mb-3 left-1/2 -translate-x-1/2 bg-white dark:bg-dark-card border border-gray-200 dark:border-gray-700 rounded-2xl shadow-2xl p-4 w-76 z-[130] flex flex-col gap-4 animate-in slide-in-from-bottom-2 duration-150 cursor-default max-h-[70vh] overflow-y-auto custom-scrollbar" onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
                             
                             {/* Brush Presets Selector */}
                             <div>
-                                <span className="text-[9px] font-bold text-gray-400 uppercase block mb-2">Ajustes Rápidos (Presets)</span>
+                                <span className="text-[9px] font-bold text-gray-400 dark:text-gray-500 uppercase block mb-2">Ajustes Rápidos (Presets)</span>
                                 <div className="flex gap-3 justify-center">
                                     {presets.map((p, i) => (
                                         <div key={i} className="relative">
@@ -486,6 +486,7 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = (props) => {
                                                 onClick={() => onSelectPreset(i)}
                                                 className={`w-9 h-9 rounded-full flex items-center justify-center transition-all ${activePresetIdx === i ? 'ring-2 ring-offset-2 ring-primary scale-105' : 'opacity-85 hover:opacity-100 hover:scale-105'}`}
                                                 style={{ backgroundColor: p.color }}
+                                                title={p.label || `Preset ${i + 1}`}
                                             >
                                                 <div className="rounded-full bg-white/40 shadow-sm" style={{ width: Math.min(18, Math.max(5, p.size)), height: Math.min(18, Math.max(5, p.size)) }} />
                                             </button>
@@ -498,7 +499,7 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = (props) => {
 
                             {/* Palette Quick Colors for Stroke */}
                             <div>
-                                <span className="text-[9px] font-bold text-gray-400 uppercase block mb-2">Paleta de Colores</span>
+                                <span className="text-[9px] font-bold text-gray-400 dark:text-gray-500 uppercase block mb-2">Paleta de Colores</span>
                                 <div className="flex gap-2 justify-between">
                                     {quickColors.map((c, i) => (
                                         <div key={i} className="relative">
@@ -507,6 +508,7 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = (props) => {
                                                 onContextMenu={(e) => { e.preventDefault(); setEditingQuickColorIdx(i); }}
                                                 className={`w-5.5 h-5.5 rounded-full border border-gray-200 dark:border-gray-600 shadow-sm transition-transform hover:scale-110 ${currentColor === c ? 'ring-2 ring-primary ring-offset-1 scale-105' : ''}`}
                                                 style={{ backgroundColor: c }}
+                                                title="Seleccionar Color"
                                             />
                                             {editingQuickColorIdx === i && (
                                                 <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-[200]">
@@ -531,7 +533,7 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = (props) => {
                                         type="range" min="0" max="100" step="1"
                                         value={getSliderValue(currentSize)}
                                         onChange={(e) => onSizeChange(getSizeValue(parseInt(e.target.value)))}
-                                        className="w-full h-1 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary"
+                                        className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary"
                                     />
                                 </div>
 
@@ -545,7 +547,7 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = (props) => {
                                             type="range" min="0.1" max="1" step="0.05"
                                             value={opacity}
                                             onChange={(e) => onOpacityChange(parseFloat(e.target.value))}
-                                            className="w-full h-1 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary"
+                                            className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary"
                                         />
                                     </div>
                                 )}
@@ -553,21 +555,37 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = (props) => {
 
                             <div className="h-px bg-gray-100 dark:bg-gray-700 my-1" />
 
-                            {/* Consolidated Stroke Dynamics */}
-                            <div className="pt-2 space-y-3">
-                                <span className="text-[9px] font-bold text-gray-400 uppercase block mb-1">Dinámicas de Trazo</span>
-                                
-                                <div className="flex items-center gap-2 cursor-pointer p-0.5 rounded transition-colors hover:bg-gray-50 dark:hover:bg-gray-800">
-                                    <input
-                                        type="checkbox"
-                                        checked={currentStrokeOptions.simulatePressure ?? true}
-                                        onChange={e => onUpdatePreset(activePresetIdx, { options: { ...currentStrokeOptions, simulatePressure: e.target.checked } })}
-                                        className="peer h-3.5 w-3.5 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
-                                        id="opt-sim-pressure"
-                                    />
-                                    <label htmlFor="opt-sim-pressure" className="text-xs font-semibold text-gray-600 dark:text-gray-300 cursor-pointer">Simular Presión</label>
+                            {/* Modo de Trazo */}
+                            <div className="space-y-1.5">
+                                <span className="text-[9px] font-bold text-gray-400 dark:text-gray-500 uppercase block mb-1">Modo de Trazo</span>
+                                <div className="grid grid-cols-2 gap-1.5 p-1 bg-gray-100 dark:bg-gray-800 rounded-xl">
+                                    <button
+                                        onClick={() => {
+                                            setDrawStyle('ink');
+                                            onUpdatePreset(activePresetIdx, { drawStyle: 'ink', options: { ...currentStrokeOptions, simulatePressure: true } });
+                                        }}
+                                        className={`py-1 text-xs font-bold rounded-lg transition-all ${drawStyle === 'ink' ? 'bg-white dark:bg-gray-700 text-primary shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+                                    >
+                                        Tinta (Presión)
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            setDrawStyle('freehand');
+                                            onUpdatePreset(activePresetIdx, { drawStyle: 'freehand', options: { ...currentStrokeOptions, simulatePressure: false } });
+                                        }}
+                                        className={`py-1 text-xs font-bold rounded-lg transition-all ${drawStyle === 'freehand' ? 'bg-white dark:bg-gray-700 text-primary shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+                                    >
+                                        Trazo Fijo
+                                    </button>
                                 </div>
+                            </div>
 
+                            <div className="h-px bg-gray-100 dark:bg-gray-700 my-1" />
+
+                            {/* Consolidated Stroke Dynamics */}
+                            <div className="space-y-3">
+                                <span className="text-[9px] font-bold text-gray-400 dark:text-gray-500 uppercase block mb-1">Dinámicas de Trazo</span>
+                                
                                 <div className="flex items-center gap-2 cursor-pointer p-0.5 rounded transition-colors hover:bg-gray-50 dark:hover:bg-gray-800">
                                     <input
                                         type="checkbox"
@@ -580,7 +598,7 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = (props) => {
                                 </div>
 
                                 {currentStrokeOptions.isNaturalMarker && (
-                                    <div className="space-y-1 animate-in slide-in-from-top-1 fade-in">
+                                    <div className="space-y-1 p-2 bg-gray-50 dark:bg-gray-800/40 rounded-xl animate-in slide-in-from-top-1 fade-in">
                                         <div className="flex justify-between text-[11px] font-semibold text-gray-600 dark:text-gray-400">
                                             <span>Textura (Ruido)</span>
                                             <span>{(currentStrokeOptions.markerTextureScale ?? 0.1).toFixed(2)}</span>
@@ -589,10 +607,115 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = (props) => {
                                             type="range" min="0.01" max="0.5" step="0.01"
                                             value={currentStrokeOptions.markerTextureScale ?? 0.1}
                                             onChange={e => onUpdatePreset(activePresetIdx, { options: { ...currentStrokeOptions, markerTextureScale: parseFloat(e.target.value) } })}
-                                            className="w-full h-1 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary"
+                                            className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary"
                                         />
                                     </div>
                                 )}
+
+                                {/* Physical dynamics */}
+                                <div className="space-y-3 pt-1">
+                                    {/* Thinning */}
+                                    <div>
+                                        <div className="flex justify-between text-[11px] font-semibold text-gray-600 dark:text-gray-400">
+                                            <span>Adelgazamiento / Dinámica</span>
+                                            <span className="text-primary font-bold">{(currentStrokeOptions.thinning ?? 0.5).toFixed(2)}</span>
+                                        </div>
+                                        <input
+                                            type="range" min="-1" max="1" step="0.05"
+                                            value={currentStrokeOptions.thinning ?? 0.5}
+                                            onChange={e => onUpdatePreset(activePresetIdx, { options: { ...currentStrokeOptions, thinning: parseFloat(e.target.value) } })}
+                                            className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary"
+                                        />
+                                    </div>
+
+                                    {/* Smoothing */}
+                                    <div>
+                                        <div className="flex justify-between text-[11px] font-semibold text-gray-600 dark:text-gray-400">
+                                            <span>Suavizado</span>
+                                            <span className="text-primary font-bold">{Math.round((currentStrokeOptions.smoothing ?? 0.5) * 100)}%</span>
+                                        </div>
+                                        <input
+                                            type="range" min="0" max="1" step="0.05"
+                                            value={currentStrokeOptions.smoothing ?? 0.5}
+                                            onChange={e => onUpdatePreset(activePresetIdx, { options: { ...currentStrokeOptions, smoothing: parseFloat(e.target.value) } })}
+                                            className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary"
+                                        />
+                                    </div>
+
+                                    {/* Streamline */}
+                                    <div>
+                                        <div className="flex justify-between text-[11px] font-semibold text-gray-600 dark:text-gray-400">
+                                            <span>Estabilización</span>
+                                            <span className="text-primary font-bold">{Math.round((currentStrokeOptions.streamline ?? 0.5) * 100)}%</span>
+                                        </div>
+                                        <input
+                                            type="range" min="0" max="1" step="0.05"
+                                            value={currentStrokeOptions.streamline ?? 0.5}
+                                            onChange={e => onUpdatePreset(activePresetIdx, { options: { ...currentStrokeOptions, streamline: parseFloat(e.target.value) } })}
+                                            className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary"
+                                        />
+                                    </div>
+
+                                    {/* Pressure Weight */}
+                                    {drawStyle === 'ink' && (
+                                        <div>
+                                            <div className="flex justify-between text-[11px] font-semibold text-gray-600 dark:text-gray-400">
+                                                <span>Sensibilidad Presión</span>
+                                                <span className="text-primary font-bold">{Math.round((currentStrokeOptions.pressureWeight ?? 0.5) * 100)}%</span>
+                                            </div>
+                                            <input
+                                                type="range" min="0" max="1" step="0.05"
+                                                value={currentStrokeOptions.pressureWeight ?? 0.5}
+                                                onChange={e => onUpdatePreset(activePresetIdx, { options: { ...currentStrokeOptions, pressureWeight: parseFloat(e.target.value) } })}
+                                                className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary"
+                                            />
+                                        </div>
+                                    )}
+
+                                    {/* Velocity Weight */}
+                                    {drawStyle === 'ink' && (
+                                        <div>
+                                            <div className="flex justify-between text-[11px] font-semibold text-gray-600 dark:text-gray-400">
+                                                <span>Sensibilidad Velocidad</span>
+                                                <span className="text-primary font-bold">{Math.round((currentStrokeOptions.velocityWeight ?? 0.5) * 100)}%</span>
+                                            </div>
+                                            <input
+                                                type="range" min="0" max="1" step="0.05"
+                                                value={currentStrokeOptions.velocityWeight ?? 0.5}
+                                                onChange={e => onUpdatePreset(activePresetIdx, { options: { ...currentStrokeOptions, velocityWeight: parseFloat(e.target.value) } })}
+                                                className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary"
+                                            />
+                                        </div>
+                                    )}
+
+                                    {/* Roughness */}
+                                    <div>
+                                        <div className="flex justify-between text-[11px] font-semibold text-gray-600 dark:text-gray-400">
+                                            <span>Vibración Línea (Jitter)</span>
+                                            <span className="text-primary font-bold">{currentStrokeOptions.roughness || 0}</span>
+                                        </div>
+                                        <input
+                                            type="range" min="0" max="10" step="1"
+                                            value={currentStrokeOptions.roughness || 0}
+                                            onChange={e => onUpdatePreset(activePresetIdx, { options: { ...currentStrokeOptions, roughness: parseInt(e.target.value) } })}
+                                            className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary"
+                                        />
+                                    </div>
+
+                                    {/* Stroke Width Jitter */}
+                                    <div>
+                                        <div className="flex justify-between text-[11px] font-semibold text-gray-600 dark:text-gray-400">
+                                            <span>Jitter Grosor</span>
+                                            <span className="text-primary font-bold">{(currentStrokeOptions.strokeWidthJitter || 0).toFixed(1)}</span>
+                                        </div>
+                                        <input
+                                            type="range" min="0" max="2" step="0.1"
+                                            value={currentStrokeOptions.strokeWidthJitter || 0}
+                                            onChange={e => onUpdatePreset(activePresetIdx, { options: { ...currentStrokeOptions, strokeWidthJitter: parseFloat(e.target.value) } })}
+                                            className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary"
+                                        />
+                                    </div>
+                                </div>
                             </div>
 
                         </div>
