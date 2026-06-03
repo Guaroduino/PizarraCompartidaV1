@@ -207,7 +207,8 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = (props) => {
         fillColor, onSetFillColor, isFilled, onToggleFill, isStroked, onToggleStroke,
         currentSize, onSizeChange, currentStrokeOptions, onStrokeOptionsChange, opacity, onOpacityChange,
         undo, redo, canUndo, canRedo, cameraScale, setCamera, onZoomExtents, isTeacher, isSidePanelOpen, setIsSidePanelOpen,
-        eraserTargets, setEraserTargets, eraserLayerScope, setEraserLayerScope, eraserMode, setEraserMode
+        eraserTargets, setEraserTargets, eraserLayerScope, setEraserLayerScope, eraserMode, setEraserMode,
+        drawStyle, setDrawStyle
     } = props;
 
     // Popover states
