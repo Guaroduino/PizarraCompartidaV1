@@ -182,7 +182,7 @@ export const TextToolbar: React.FC<TextToolbarProps> = ({
                                 color={text.color || '#000000'}
                                 onChange={(c) => onUpdate({ color: c })}
                                 className="w-6 h-6 rounded-full border border-gray-300"
-                                position="top"
+                                position="bottom"
                             />
                         </div>
                     )}
@@ -191,7 +191,7 @@ export const TextToolbar: React.FC<TextToolbarProps> = ({
                             color={text.backgroundColor && text.backgroundColor !== 'transparent' ? text.backgroundColor : '#ffffff'}
                             onChange={(c) => onUpdate({ backgroundColor: c })}
                             className="w-6 h-6 rounded-md border border-gray-300"
-                            position="top"
+                            position="bottom"
                             opacity={text.backgroundColor === 'transparent' ? 0 : 1}
                         />
                         {text.backgroundColor === 'transparent' && <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-red-500 font-bold text-xs">\</div>}
@@ -201,7 +201,7 @@ export const TextToolbar: React.FC<TextToolbarProps> = ({
                             color={text.borderColor && text.borderColor !== 'transparent' ? text.borderColor : '#000000'}
                             onChange={(c) => onUpdate({ borderColor: c })}
                             className="w-6 h-6 rounded-md border-2 border-gray-400"
-                            position="top"
+                            position="bottom"
                             opacity={text.borderColor === 'transparent' ? 0 : 1}
                         />
                          {text.borderColor === 'transparent' && <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-red-500 font-bold text-xs">\</div>}

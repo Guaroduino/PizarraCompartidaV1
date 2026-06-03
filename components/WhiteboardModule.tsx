@@ -1658,7 +1658,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                 </div>
             )}
 
-            <div className={`flex-grow relative overflow-hidden bg-[#2a2a2a] ${!isTeacher && isInteracting ? 'cursor-grabbing' : (!isTeacher ? 'cursor-grab' : '')}`}>
+            <div id="whiteboard-canvas-container" className={`flex-grow relative overflow-hidden bg-[#2a2a2a] ${!isTeacher && isInteracting ? 'cursor-grabbing' : (!isTeacher ? 'cursor-grab' : '')}`}>
                 {!activePageId && <div className="absolute inset-0 flex flex-col items-center justify-center z-10 pointer-events-none"><div className="bg-black/50 backdrop-blur-md p-6 rounded-2xl text-white text-center"><p className="font-bold text-lg mb-2">Cargando...</p></div></div>}
 
                 {editingTextId && editingTextObject && (
@@ -1824,12 +1824,12 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
 
                 {showTransformConfirm && (
                     <div
-                        className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[9999] flex items-center gap-1 p-1.5 bg-white/95 dark:bg-dark-card/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 animate-in slide-in-from-bottom-5 pointer-events-auto"
+                        className="absolute top-4 left-1/2 -translate-x-1/2 z-[9999] flex items-center gap-1 p-1.5 bg-white/95 dark:bg-dark-card/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 animate-in slide-in-from-top-5 pointer-events-auto"
                     >
                         <div className="flex items-center gap-1">
                             <div className="relative group/layer">
                                 <button onClick={() => setShowLayerSelector(!showLayerSelector)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-300 transition-colors" title="Mover a Capa"><IconLayers className="w-5 h-5" /></button>
-                                {showLayerSelector && (<div className="absolute bottom-full left-0 mb-2 bg-white dark:bg-dark-card border dark:border-gray-700 rounded-lg shadow-lg w-40 z-50 p-1">{layers.map(l => (<button key={l.id} onClick={() => { moveSelectionToLayer(l.id); setShowLayerSelector(false); }} className="w-full text-left px-3 py-2 text-xs font-bold hover:bg-gray-100 dark:hover:bg-gray-800 rounded truncate">{l.name}</button>))}</div>)}
+                                {showLayerSelector && (<div className="absolute top-full left-0 mt-2 bg-white dark:bg-dark-card border dark:border-gray-700 rounded-lg shadow-lg w-40 z-50 p-1">{layers.map(l => (<button key={l.id} onClick={() => { moveSelectionToLayer(l.id); setShowLayerSelector(false); }} className="w-full text-left px-3 py-2 text-xs font-bold hover:bg-gray-100 dark:hover:bg-gray-800 rounded truncate">{l.name}</button>))}</div>)}
                             </div>
                             {selectedStrokeIds.length > 1 && (
                                 <button onClick={handleGroupStrokes} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-300 transition-colors" title="Agrupar"><IconGroup className="w-5 h-5" /></button>

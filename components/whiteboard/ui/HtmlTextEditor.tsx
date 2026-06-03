@@ -37,6 +37,13 @@ export const HtmlTextEditor: React.FC<HtmlTextEditorProps> = ({
     // Estado local para el texto (optimistic updates cuando se modifica desde la toolbar)
     const [localText, setLocalText] = useState<ExtendedWhiteboardText>(text);
 
+    const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(null);
+
+    useEffect(() => {
+        const container = document.getElementById('whiteboard-canvas-container');
+        setPortalContainer(container || document.body);
+    }, []);
+
     // Helper para decodificar entidades HTML si el texto viene de formato enriquecido
     const decodeHtmlIfNeeded = (html: string) => {
         if (!html) return "";
@@ -238,12 +245,12 @@ export const HtmlTextEditor: React.FC<HtmlTextEditorProps> = ({
             }}
             onPointerDown={(e) => e.stopPropagation()} // Evitar arrastrar el canvas detrás
         >
-            {/* Barra de Herramientas y Botones de Acción (Fija en la parte inferior) */}
-            {createPortal(
-                <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[9999] flex flex-col gap-2 pointer-events-auto">
+            {/* Barra de Herramientas y Botones de Acción (Fija/Absoluta en la parte superior) */}
+            {portalContainer && createPortal(
+                <div className={`${portalContainer.id === 'whiteboard-canvas-container' ? 'absolute top-4' : 'fixed top-24'} left-1/2 -translate-x-1/2 z-[9999] flex flex-col gap-2 pointer-events-auto`}>
 
                     {/* Botones de Guardar/Cancelar */}
-                    <div className="flex gap-2 bg-white/90 dark:bg-dark-card/90 backdrop-blur-md p-2 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 w-fit mx-auto animate-in slide-in-from-bottom-5">
+                    <div className="flex gap-2 bg-white/90 dark:bg-dark-card/90 backdrop-blur-md p-2 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 w-fit mx-auto animate-in slide-in-from-top-5">
                         <button
                             onClick={handleSave}
                             className="flex items-center gap-1 px-3 py-1.5 bg-green-500 text-white font-bold text-sm rounded-lg hover:bg-green-600 transition-colors shadow-sm"
@@ -260,7 +267,7 @@ export const HtmlTextEditor: React.FC<HtmlTextEditorProps> = ({
                         </button>
                     </div>
 
-                    <div className="bg-white/90 dark:bg-dark-card/90 backdrop-blur-md rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 animate-in slide-in-from-bottom-2">
+                    <div className="bg-white/90 dark:bg-dark-card/90 backdrop-blur-md rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 animate-in slide-in-from-top-2">
                         <TextToolbar
                             text={localText}
                             layers={layers}
@@ -277,7 +284,7 @@ export const HtmlTextEditor: React.FC<HtmlTextEditorProps> = ({
                         />
                     </div>
                 </div>,
-                document.body
+                portalContainer
             )}
 
             {/* Área de Edición */}

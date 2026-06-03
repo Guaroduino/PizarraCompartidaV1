@@ -9,6 +9,7 @@ interface ColorPickerProps {
     label?: string;
     opacity?: number; // 0-1
     onOpacityChange?: (opacity: number) => void;
+    className?: string;
 }
 
 // --- HSV / HEX Helpers ---
@@ -147,7 +148,7 @@ const SaturationValueArea: React.FC<{
     );
 };
 
-export const ColorPicker: React.FC<ColorPickerProps> = ({ color, onChange, onClose, label, opacity, onOpacityChange }) => {
+export const ColorPicker: React.FC<ColorPickerProps> = ({ color, onChange, onClose, label, opacity, onOpacityChange, className }) => {
     // Internal state in HSV
     const [hsv, setHsv] = useState({ h: 0, s: 0, v: 0 });
     const [inputHex, setInputHex] = useState(color);
@@ -196,7 +197,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({ color, onChange, onClo
 
     return (
         <div
-            className="w-64 bg-white dark:bg-dark-card p-3 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 animate-in zoom-in-95 flex flex-col gap-3 relative z-[200]"
+            className={className || "w-64 bg-white dark:bg-dark-card p-3 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 animate-in zoom-in-95 flex flex-col gap-3 relative z-[200]"}
             onPointerDown={e => e.stopPropagation()}
             onMouseDown={e => e.stopPropagation()}
             onMouseUp={e => e.stopPropagation()}
