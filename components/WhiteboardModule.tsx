@@ -144,9 +144,22 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
             setColor(p.color);
             setSize(p.size);
             setOpacity(p.opacity);
-            setStrokeOpts(p.options);
-            if (p.drawStyle) {
-                setDrawStyle(p.drawStyle);
+            
+            // Map freehand to ink for backward compatibility
+            const loadedStyle = p.drawStyle === 'freehand' ? 'ink' : (p.drawStyle || 'ink');
+            setDrawStyle(loadedStyle);
+            
+            const loadedOptions = {
+                ...p.options,
+                thinning: p.drawStyle === 'freehand' ? 0 : (p.options?.thinning ?? 0.5)
+            };
+            setStrokeOpts(loadedOptions);
+            
+            // Load stroke and fill states from preset options
+            setIsStroked(loadedOptions.stroked ?? true);
+            setIsFilled(loadedOptions.filled ?? false);
+            if (loadedOptions.fillColor) {
+                setFillColor(loadedOptions.fillColor);
             }
         }
     }, [activePresetIdx, presets]);
@@ -179,7 +192,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
 
     }, [tool, drawStyle, activePresetIdx, presets, stylusOnly, STORAGE_KEY, user, isGuestMode, fillColor, isFilled, isStroked]);
 
-    const handleUpdatePreset = (index: number, updates: Partial<ToolPreset>) => {
+    const handleUpdatePreset = useCallback((index: number, updates: Partial<ToolPreset>) => {
         setPresets(prev => prev.map((p, idx) => idx === index ? { ...p, ...updates } : p));
         if (index === activePresetIdx) {
             if (updates.color) setColor(updates.color);
@@ -188,12 +201,12 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
             if (updates.options) setStrokeOpts(updates.options);
             if (updates.drawStyle) setDrawStyle(updates.drawStyle);
         }
-    };
+    }, [activePresetIdx]);
 
-    const handleSelectPreset = (index: number) => {
+    const handleSelectPreset = useCallback((index: number) => {
         setActivePresetIdx(index);
         setTool('pen');
-    };
+    }, []);
 
     const [confirmConfig, setConfirmConfig] = useState<{
         isOpen: boolean;
@@ -834,7 +847,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
         } catch (e) { console.error(e); } finally { setIsSyncing(false); }
     };
 
-    const handleLassoEnd = (closedLoop: Point[]) => {
+    const handleLassoEnd = useCallback((closedLoop: Point[]) => {
         const selected = activeStrokes.filter(s => !lockedLayerIds.has(s.layerId || '') && s.points.some(p => isPointInPolygon(p, closedLoop)));
         const newSelectedIds = selected.map(s => s.id);
 
@@ -873,9 +886,9 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
             setSelectedId(null);
             setSelectedType(null);
         }
-    };
+    }, [activeStrokes, lockedLayerIds, activeImages, activeTexts, setSelectedStrokeIds, setSelectedId, setSelectedType]);
 
-    const handleUpdateFirestore = async (id: string, type: 'image' | 'text', data: any) => {
+    const handleUpdateFirestore = useCallback(async (id: string, type: 'image' | 'text', data: any) => {
         if (id.startsWith('temp_')) {
             if (type === 'image') setPendingImages(prev => prev.map(img => img.id === id ? { ...img, ...data } : img));
             else setPendingTexts(prev => prev.map(txt => txt.id === id ? { ...txt, ...data } : txt));
@@ -884,7 +897,20 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
         const coll = type === 'image' ? 'whiteboardImages' : 'whiteboardTexts';
         setIsSyncing(true);
         try { await updateDoc(doc(db, coll, id), data); } finally { setIsSyncing(false); }
-    };
+    }, [setIsSyncing]);
+
+    const handleCloseSidePanel = useCallback(() => setIsSidePanelOpen(false), []);
+
+    const handleDragSidePanelImageStart = useCallback((e: React.DragEvent, url: string) => {
+        e.dataTransfer.setData('text/plain', url);
+        e.dataTransfer.effectAllowed = 'copy';
+    }, []);
+
+    const handleImageUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target?.files && e.target.files[0]) {
+            setImportingFile(e.target.files[0]);
+        }
+    }, []);
 
     const { handlePointerDown, handlePointerMove, handlePointerUp, handlePointerCancel, currentStroke, isInteracting, finishPolyline } = useWhiteboardGestures({
         tool, isTeacher, stylusOnly, isNavLocked, strokeOpts, screenToWorld, setCamera, camera, onStrokeComplete: handleStrokeComplete,
@@ -1351,13 +1377,13 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
     const handleDeleteBoard = (boardId: string) => { requestConfirm("¿Borrar Clase?", "Irreversible.", () => deleteBoard(boardId), true); };
     const handleDeleteLayer = (layerId: string) => { requestConfirm("¿Eliminar Capa?", "Irreversible.", () => deleteLayer(layerId), true); };
 
-    const handleZoomExtents = () => {
+    const handleZoomExtents = useCallback(() => {
         const margin = 20;
         const availableWidth = Math.max(100, dimensions.width - margin * 2);
         const availableHeight = Math.max(100, dimensions.height - margin * 2);
         const newScale = Math.min(availableWidth / boardSettings.width, availableHeight / boardSettings.height);
         setCamera({ scale: newScale, x: (dimensions.width - boardSettings.width * newScale) / 2, y: (dimensions.height - boardSettings.height * newScale) / 2 });
-    };
+    }, [dimensions.width, dimensions.height, boardSettings.width, boardSettings.height]);
 
     // Use a ref to always read latest camera inside native wheel handler
     const cameraRef = useRef(camera);
@@ -1897,11 +1923,8 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                 {isTeacher && (
                     <TeacherSidePanel
                         isOpen={isSidePanelOpen}
-                        onClose={() => setIsSidePanelOpen(false)}
-                        onDragImageStart={(e, url) => {
-                            e.dataTransfer.setData('text/plain', url);
-                            e.dataTransfer.effectAllowed = 'copy';
-                        }}
+                        onClose={handleCloseSidePanel}
+                        onDragImageStart={handleDragSidePanelImageStart}
                     />
                 )}
 
@@ -1931,7 +1954,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                             setStylusOnly={setStylusOnly}
                             showLayers={showLayers}
                             setShowLayers={setShowLayers}
-                            onImageUpload={(e) => { if (e.target?.files) setImportingFile(e.target.files[0]) }}
+                            onImageUpload={handleImageUpload}
                             currentColor={color}
                             onSetColor={setColor}
                             fillColor={fillColor}

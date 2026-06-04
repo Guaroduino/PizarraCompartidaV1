@@ -546,14 +546,41 @@ export const useWhiteboardGestures = ({
                         setCurrentStroke([shapeStartPoint.current, { x, y, pressure: 0.5 }]);
                     }
                 } else {
-                    const currentTime = Date.now();
-                    if (lastDrawPoint.current) {
-                        const dist = Math.hypot(x - lastDrawPoint.current.x, y - lastDrawPoint.current.y);
-                        const throttle = strokeOpts.pointThrottle ?? 2;
-                        if (dist < throttle / camera.scale) return;
+                    const coalescedEvents = (e.nativeEvent && typeof e.nativeEvent.getCoalescedEvents === 'function')
+                        ? e.nativeEvent.getCoalescedEvents()
+                        : [];
+
+                    const pointsToAdd: Point[] = [];
+                    if (coalescedEvents.length > 0) {
+                        coalescedEvents.forEach(ce => {
+                            const { x: cx, y: cy } = screenToWorld(ce.clientX, ce.clientY);
+                            const inputPressure = ce.pointerType === 'pen' ? ce.pressure : 0.5;
+                            const mixedPressure = inputPressure * (strokeOpts.pressureWeight ?? 1);
+                            pointsToAdd.push({ x: cx, y: cy, pressure: mixedPressure });
+                        });
+                    } else {
+                        const inputPressure = e.pointerType === 'pen' ? e.pressure : 0.5;
+                        const mixedPressure = inputPressure * (strokeOpts.pressureWeight ?? 1);
+                        pointsToAdd.push({ x, y, pressure: mixedPressure });
                     }
+
+                    const currentTime = Date.now();
                     lastDrawPoint.current = { x, y, time: currentTime };
-                    setCurrentStroke(prev => [...(prev || []), { x, y, pressure: 0.5 }]);
+
+                    setCurrentStroke(prev => {
+                        const base = prev || [];
+                        const newPoints = [...base];
+                        pointsToAdd.forEach(p => {
+                            if (newPoints.length > 0) {
+                                const last = newPoints[newPoints.length - 1];
+                                const dist = Math.hypot(p.x - last.x, p.y - last.y);
+                                const throttle = strokeOpts.pointThrottle ?? 2;
+                                if (dist < throttle / camera.scale) return;
+                            }
+                            newPoints.push(p);
+                        });
+                        return newPoints;
+                    });
                 }
             }
         });

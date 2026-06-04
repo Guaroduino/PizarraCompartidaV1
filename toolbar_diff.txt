@@ -1,0 +1,686 @@
+diff --git a/components/whiteboard/ui/WhiteboardToolbar.tsx b/components/whiteboard/ui/WhiteboardToolbar.tsx
+index 04ab8a7..8433e77 100644
+--- a/components/whiteboard/ui/WhiteboardToolbar.tsx
++++ b/components/whiteboard/ui/WhiteboardToolbar.tsx
+@@ -4,7 +4,8 @@ import {
+     IconPencil, IconTrash, IconSettings, IconLayers, IconX, IconScribble,
+     IconSquare, IconRectangle, IconParallelogram, IconFill, IconBorder,
+     IconBrush, IconEraser, IconLine, IconPolyline, IconCircle, IconArc,
+-    IconSelect, IconLasso, IconImage, IconUndo, IconRedo, IconSidebar
++    IconSelect, IconLasso, IconImage, IconUndo, IconRedo, IconSidebar,
++    IconChevronDown, IconChevronUp, IconPlus, IconCheck
+ } from '../../Icons';
+ import type { ToolPreset, ToolType, DrawStyle, ExtendedStrokeOptions } from '../../../types/whiteboardTypes';
+ import { ColorPicker, ColorPickerButton } from '../../ColorPicker';
+@@ -121,7 +122,7 @@ const PresetEditor: React.FC<{
+                             <button
+                                 key={c}
+                                 onClick={() => onUpdate({ color: c })}
+-                                className={`w-5.5 h-5.5 rounded-full border border-gray-200 dark:border-gray-600 ${preset.color === c ? 'ring-2 ring-primary ring-offset-1 scale-105' : ''}`}
++                                className={`w-7 h-7 rounded-full border border-gray-200 dark:border-gray-600 ${preset.color === c ? 'ring-2 ring-primary ring-offset-1 scale-105' : ''}`}
+                                 style={{ backgroundColor: c }}
+                             />
+                         ))}
+@@ -213,10 +214,15 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = (props) => {
+ 
+     // Popover states
+     const [showBrushPanel, setShowBrushPanel] = useState(false);
+-    const [showGeoMenu, setShowGeoMenu] = useState(false);
+     const [showEraserPanel, setShowEraserPanel] = useState(false);
+     const [showZoomMenu, setShowZoomMenu] = useState(false);
+ 
++    // Accordion collapsible sections
++    const [sectionColoresOpen, setSectionColoresOpen] = useState(true);
++    const [sectionMedidasOpen, setSectionMedidasOpen] = useState(true);
++    const [sectionDinamicasOpen, setSectionDinamicasOpen] = useState(false);
++    const [sectionFormasOpen, setSectionFormasOpen] = useState(true);
++
+     const [quickColors, setQuickColors] = useState<string[]>(() => {
+         const saved = localStorage.getItem('wb_quick_colors');
+         return saved ? JSON.parse(saved) : ['#000000', '#ef4444', '#22c55e', '#3b82f6', '#f59e0b', '#8b5cf6'];
+@@ -225,6 +231,9 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = (props) => {
+ 
+     const [lastGeoTool, setLastGeoTool] = useState<ToolType>('line');
+     const isShapeTool = ['line', 'polyline', 'circle', 'arc', 'square', 'rectangle', 'parallelogram'].includes(tool);
++    const ActiveMainBrushIcon = isShapeTool
++        ? (GEO_TOOLS.find(t => t.id === tool)?.icon || IconBrush)
++        : IconBrush;
+ 
+     useEffect(() => {
+         localStorage.setItem('wb_quick_colors', JSON.stringify(quickColors));
+@@ -239,17 +248,16 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = (props) => {
+     // Handle clicking outside to close popovers automatically
+     useEffect(() => {
+         const handleClickOutside = () => {
+-            setShowGeoMenu(false);
+             setShowBrushPanel(false);
+             setEditingQuickColorIdx(null);
+             setShowZoomMenu(false);
+             setShowEraserPanel(false);
+         };
+-        if (showGeoMenu || showBrushPanel || editingQuickColorIdx !== null || showZoomMenu || showEraserPanel) {
++        if (showBrushPanel || editingQuickColorIdx !== null || showZoomMenu || showEraserPanel) {
+             document.addEventListener('click', handleClickOutside);
+         }
+         return () => document.removeEventListener('click', handleClickOutside);
+-    }, [showGeoMenu, showBrushPanel, editingQuickColorIdx, showZoomMenu, showEraserPanel]);
++    }, [showBrushPanel, editingQuickColorIdx, showZoomMenu, showEraserPanel]);
+ 
+     // Custom gesture / click / hold trigger refs
+     const longPressTimeoutRef = useRef<{ [key: string]: any }>({});
+@@ -305,31 +313,21 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = (props) => {
+     const brushHandlers = createTriggerHandlers(
+         'brush',
+         () => {
+-            setTool('pen');
++            if (drawStyle === 'geometric') {
++                setTool(lastGeoTool);
++            } else {
++                setTool('pen');
++            }
+             setShowBrushPanel(false);
+-            setShowGeoMenu(false);
+             setShowEraserPanel(false);
+         },
+         () => {
+-            setTool('pen');
++            if (drawStyle === 'geometric') {
++                setTool(lastGeoTool);
++            } else {
++                setTool('pen');
++            }
+             setShowBrushPanel(true);
+-            setShowGeoMenu(false);
+-            setShowEraserPanel(false);
+-        }
+-    );
+-
+-    const geoHandlers = createTriggerHandlers(
+-        'geo',
+-        () => {
+-            setTool(lastGeoTool);
+-            setShowBrushPanel(false);
+-            setShowGeoMenu(false);
+-            setShowEraserPanel(false);
+-        },
+-        () => {
+-            setTool(lastGeoTool);
+-            setShowBrushPanel(false);
+-            setShowGeoMenu(true);
+             setShowEraserPanel(false);
+         }
+     );
+@@ -357,6 +355,7 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = (props) => {
+ 
+     const handleQuickColorClick = (idx: number, color: string) => {
+         onSetColor(color);
++        onUpdatePreset(activePresetIdx, { color });
+         if (tool !== 'pen' && !isShapeTool) {
+             setTool('pen');
+         }
+@@ -367,6 +366,7 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = (props) => {
+         newColors[idx] = newColor;
+         setQuickColors(newColors);
+         onSetColor(newColor);
++        onUpdatePreset(activePresetIdx, { color: newColor });
+     };
+ 
+     const handleZoomOption = (scale: number) => {
+@@ -461,25 +461,24 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = (props) => {
+                     <IconSelect className="w-5 h-5" />
+                 </button>
+ 
+-                {/* BRUSH (PENCIL / MARKER) */}
++                {/* BRUSH (PENCIL / MARKER / GEOMETRIC SHAPES) */}
+                 <div className="relative">
+                     <button
+                         {...brushHandlers}
+-                        className={`p-2.5 rounded-xl transition-all hover:scale-105 flex items-center relative ${tool === 'pen' ? 'bg-primary text-white shadow-md' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'}`}
+-                        title="Pincel / Lápiz (P) - Doble click para opciones"
++                        className={`p-2.5 rounded-xl transition-all hover:scale-105 flex items-center relative ${tool === 'pen' || isShapeTool ? 'bg-primary text-white shadow-md' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'}`}
++                        title="Pincel / Lápiz / Formas (P) - Doble click para opciones"
+                     >
+-                        <IconBrush className="w-5 h-5" />
++                        <ActiveMainBrushIcon className="w-5 h-5" />
+                         {/* Dot showing current brush color & size scale */}
+                         <span className="absolute bottom-1 right-1 w-2.5 h-2.5 rounded-full border border-white dark:border-gray-900 shadow-sm" style={{ backgroundColor: currentColor }}></span>
+                     </button>
+-
+                     {/* Consolidated Brush Popover */}
+                     {showBrushPanel && onSizeChange && currentSize !== undefined && currentStrokeOptions && onStrokeOptionsChange && (
+-                        <div className="absolute bottom-full mb-3 left-1/2 -translate-x-1/2 bg-white dark:bg-dark-card border border-gray-200 dark:border-gray-700 rounded-2xl shadow-2xl p-4 w-76 z-[130] flex flex-col gap-4 animate-in slide-in-from-bottom-2 duration-150 cursor-default max-h-[70vh] overflow-y-auto custom-scrollbar" onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
++                        <div className="absolute bottom-full mb-3 left-1/2 -translate-x-1/2 bg-white dark:bg-dark-card border border-gray-200 dark:border-gray-700 rounded-2xl shadow-2xl p-4 w-[290px] min-w-[290px] max-w-[290px] z-[130] flex flex-col gap-3.5 animate-in slide-in-from-bottom-2 duration-150 cursor-default" onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
+                             
+-                            {/* Brush Presets Selector */}
++                            {/* Brush Presets Selector - ALWAYS VISIBLE */}
+                             <div>
+-                                <span className="text-[9px] font-bold text-gray-400 dark:text-gray-500 uppercase block mb-2">Ajustes Rápidos (Presets)</span>
++                                <span className="text-[9px] font-bold text-gray-400 dark:text-gray-500 uppercase block mb-1.5">Preajustes Rápidos</span>
+                                 <div className="flex gap-3 justify-center">
+                                     {presets.map((p, i) => (
+                                         <div key={i} className="relative">
+@@ -496,34 +495,43 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = (props) => {
+                                 </div>
+                             </div>
+ 
+-                            <div className="h-px bg-gray-100 dark:bg-gray-700 my-1" />
+-
+-                            {/* Palette Quick Colors for Stroke */}
++                            {/* Palette Quick Colors for Stroke - ALWAYS VISIBLE */}
+                             <div>
+-                                <span className="text-[9px] font-bold text-gray-400 dark:text-gray-500 uppercase block mb-2">Paleta de Colores</span>
+-                                <div className="flex gap-2 justify-between">
+-                                    {quickColors.map((c, i) => (
+-                                        <div key={i} className="relative">
+-                                            <button
+-                                                onClick={() => handleQuickColorClick(i, c)}
+-                                                onContextMenu={(e) => { e.preventDefault(); setEditingQuickColorIdx(i); }}
+-                                                className={`w-5.5 h-5.5 rounded-full border border-gray-200 dark:border-gray-600 shadow-sm transition-transform hover:scale-110 ${currentColor === c ? 'ring-2 ring-primary ring-offset-1 scale-105' : ''}`}
+-                                                style={{ backgroundColor: c }}
+-                                                title="Seleccionar Color"
+-                                            />
+-                                            {editingQuickColorIdx === i && (
+-                                                <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-[200]">
+-                                                    <ColorPicker color={c} onChange={(newVal) => handleQuickColorUpdate(i, newVal)} onClose={() => setEditingQuickColorIdx(null)} label={`Color ${i + 1}`} />
+-                                                </div>
+-                                            )}
+-                                        </div>
+-                                    ))}
++                                <span className="text-[9px] font-bold text-gray-400 dark:text-gray-500 uppercase block mb-1.5">Paleta de Colores</span>
++                                <div className="flex gap-2 justify-between items-center">
++                                    <div className="flex gap-1.5 flex-wrap">
++                                        {quickColors.slice(0, 5).map((c, i) => (
++                                            <div key={i} className="relative">
++                                                <button
++                                                    onClick={() => handleQuickColorClick(i, c)}
++                                                    onDoubleClick={(e) => { e.stopPropagation(); setEditingQuickColorIdx(i); }}
++                                                    onContextMenu={(e) => { e.preventDefault(); setEditingQuickColorIdx(i); }}
++                                                    className={`w-7 h-7 rounded-full border border-gray-200 dark:border-gray-600 shadow-sm transition-transform hover:scale-110 ${currentColor === c ? 'ring-2 ring-primary ring-offset-1 scale-105' : ''}`}
++                                                    style={{ backgroundColor: c }}
++                                                    title="Seleccionar (Doble clic o click derecho para editar)"
++                                                />
++                                                {editingQuickColorIdx === i && (
++                                                    <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-[200]">
++                                                        <ColorPicker color={c} onChange={(newVal) => handleQuickColorUpdate(i, newVal)} onClose={() => setEditingQuickColorIdx(null)} label={`Color ${i + 1}`} />
++                                                    </div>
++                                                )}
++                                            </div>
++                                        ))}
++                                    </div>
++                                    
++                                    <ColorPickerButton
++                                        color={currentColor}
++                                        onChange={(newColor) => {
++                                            onSetColor(newColor);
++                                            onUpdatePreset(activePresetIdx, { color: newColor });
++                                        }}
++                                        className="w-7 h-7 rounded-full border border-gray-200 dark:border-gray-600 shadow-sm hover:scale-110 transition-transform flex-shrink-0"
++                                        position="top"
++                                    />
+                                 </div>
+                             </div>
+ 
+-                            <div className="h-px bg-gray-100 dark:bg-gray-700 my-1" />
+-
+-                            {/* Sliders Area */}
++                            {/* Sliders Area - ALWAYS VISIBLE */}
+                             <div className="space-y-3">
+                                 <div>
+                                     <div className="flex justify-between text-[11px] font-semibold text-gray-600 dark:text-gray-400 mb-1">
+@@ -554,233 +562,263 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = (props) => {
+                                 )}
+                             </div>
+ 
+-                            <div className="h-px bg-gray-100 dark:bg-gray-700 my-1" />
+-
+-                            {/* Modo de Trazo */}
+-                            <div className="space-y-1.5">
+-                                <span className="text-[9px] font-bold text-gray-400 dark:text-gray-500 uppercase block mb-1">Modo de Trazo</span>
+-                                <div className="grid grid-cols-2 gap-1.5 p-1 bg-gray-100 dark:bg-gray-800 rounded-xl">
++                            {/* Modo de Trazo - ALWAYS VISIBLE */}
++                            <div className="space-y-1.5 pt-1">
++                                <span className="text-[9px] font-bold text-gray-400 dark:text-gray-500 uppercase block mb-1">Modo de Dibujo</span>
++                                <div className="grid grid-cols-3 gap-1 p-1 bg-gray-100 dark:bg-gray-800 rounded-xl">
+                                     <button
+                                         onClick={() => {
+                                             setDrawStyle('ink');
++                                            setTool('pen');
+                                             onUpdatePreset(activePresetIdx, { drawStyle: 'ink', options: { ...currentStrokeOptions, simulatePressure: true } });
+                                         }}
+-                                        className={`py-1 text-xs font-bold rounded-lg transition-all ${drawStyle === 'ink' ? 'bg-white dark:bg-gray-700 text-primary shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
++                                        className={`py-1 text-[10px] font-bold rounded-lg transition-all ${drawStyle === 'ink' && tool === 'pen' ? 'bg-white dark:bg-gray-700 text-primary shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+                                     >
+-                                        Tinta (Presión)
++                                        Tinta
+                                     </button>
+                                     <button
+                                         onClick={() => {
+                                             setDrawStyle('freehand');
++                                            setTool('pen');
+                                             onUpdatePreset(activePresetIdx, { drawStyle: 'freehand', options: { ...currentStrokeOptions, simulatePressure: false } });
+                                         }}
+-                                        className={`py-1 text-xs font-bold rounded-lg transition-all ${drawStyle === 'freehand' ? 'bg-white dark:bg-gray-700 text-primary shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
++                                        className={`py-1 text-[10px] font-bold rounded-lg transition-all ${drawStyle === 'freehand' && tool === 'pen' ? 'bg-white dark:bg-gray-700 text-primary shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+                                     >
+-                                        Trazo Fijo
++                                        Fijo
++                                    </button>
++                                    <button
++                                        onClick={() => {
++                                            setDrawStyle('geometric');
++                                            setTool(lastGeoTool);
++                                            onUpdatePreset(activePresetIdx, { drawStyle: 'geometric' });
++                                        }}
++                                        className={`py-1 text-[10px] font-bold rounded-lg transition-all ${drawStyle === 'geometric' ? 'bg-white dark:bg-gray-700 text-primary shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
++                                    >
++                                        Formas
+                                     </button>
+                                 </div>
+                             </div>
+ 
+-                            <div className="h-px bg-gray-100 dark:bg-gray-700 my-1" />
+-
+-                            {/* Consolidated Stroke Dynamics */}
+-                            <div className="space-y-3">
+-                                <span className="text-[9px] font-bold text-gray-400 dark:text-gray-500 uppercase block mb-1">Dinámicas de Trazo</span>
+-                                
+-                                <div className="flex items-center gap-2 cursor-pointer p-0.5 rounded transition-colors hover:bg-gray-50 dark:hover:bg-gray-800">
+-                                    <input
+-                                        type="checkbox"
+-                                        checked={currentStrokeOptions.isNaturalMarker || false}
+-                                        onChange={e => onUpdatePreset(activePresetIdx, { options: { ...currentStrokeOptions, isNaturalMarker: e.target.checked } })}
+-                                        className="peer h-3.5 w-3.5 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
+-                                        id="opt-nat-marker"
+-                                    />
+-                                    <label htmlFor="opt-nat-marker" className="text-xs font-semibold text-gray-600 dark:text-gray-300 cursor-pointer">Efecto Rotulador</label>
+-                                </div>
+-
+-                                {currentStrokeOptions.isNaturalMarker && (
+-                                    <div className="space-y-1 p-2 bg-gray-50 dark:bg-gray-800/40 rounded-xl animate-in slide-in-from-top-1 fade-in">
+-                                        <div className="flex justify-between text-[11px] font-semibold text-gray-600 dark:text-gray-400">
+-                                            <span>Textura (Ruido)</span>
+-                                            <span>{(currentStrokeOptions.markerTextureScale ?? 0.1).toFixed(2)}</span>
+-                                        </div>
+-                                        <input
+-                                            type="range" min="0.01" max="0.5" step="0.01"
+-                                            value={currentStrokeOptions.markerTextureScale ?? 0.1}
+-                                            onChange={e => onUpdatePreset(activePresetIdx, { options: { ...currentStrokeOptions, markerTextureScale: parseFloat(e.target.value) } })}
+-                                            className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary"
+-                                        />
+-                                    </div>
+-                                )}
+-
+-                                {/* Physical dynamics */}
+-                                <div className="space-y-3 pt-1">
+-                                    {/* Thinning */}
+-                                    <div>
+-                                        <div className="flex justify-between text-[11px] font-semibold text-gray-600 dark:text-gray-400">
+-                                            <span>Adelgazamiento / Dinámica</span>
+-                                            <span className="text-primary font-bold">{(currentStrokeOptions.thinning ?? 0.5).toFixed(2)}</span>
+-                                        </div>
+-                                        <input
+-                                            type="range" min="-1" max="1" step="0.05"
+-                                            value={currentStrokeOptions.thinning ?? 0.5}
+-                                            onChange={e => onUpdatePreset(activePresetIdx, { options: { ...currentStrokeOptions, thinning: parseFloat(e.target.value) } })}
+-                                            className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary"
+-                                        />
+-                                    </div>
+-
+-                                    {/* Smoothing */}
+-                                    <div>
+-                                        <div className="flex justify-between text-[11px] font-semibold text-gray-600 dark:text-gray-400">
+-                                            <span>Suavizado</span>
+-                                            <span className="text-primary font-bold">{Math.round((currentStrokeOptions.smoothing ?? 0.5) * 100)}%</span>
+-                                        </div>
+-                                        <input
+-                                            type="range" min="0" max="1" step="0.05"
+-                                            value={currentStrokeOptions.smoothing ?? 0.5}
+-                                            onChange={e => onUpdatePreset(activePresetIdx, { options: { ...currentStrokeOptions, smoothing: parseFloat(e.target.value) } })}
+-                                            className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary"
+-                                        />
+-                                    </div>
+-
+-                                    {/* Streamline */}
+-                                    <div>
+-                                        <div className="flex justify-between text-[11px] font-semibold text-gray-600 dark:text-gray-400">
+-                                            <span>Estabilización</span>
+-                                            <span className="text-primary font-bold">{Math.round((currentStrokeOptions.streamline ?? 0.5) * 100)}%</span>
+-                                        </div>
+-                                        <input
+-                                            type="range" min="0" max="1" step="0.05"
+-                                            value={currentStrokeOptions.streamline ?? 0.5}
+-                                            onChange={e => onUpdatePreset(activePresetIdx, { options: { ...currentStrokeOptions, streamline: parseFloat(e.target.value) } })}
+-                                            className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary"
+-                                        />
+-                                    </div>
++                            {/* ACCORDION: FORMAS Y ESTILOS (Solo visible en Modo Formas) */}
++                            {drawStyle === 'geometric' && (
++                                <div className="border-t border-gray-100 dark:border-gray-850 pt-3">
++                                    <button
++                                        onClick={() => setSectionFormasOpen(!sectionFormasOpen)}
++                                        className="flex items-center justify-between w-full text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300 transition-colors mb-2"
++                                    >
++                                        <span>Formas y Estilos</span>
++                                        {sectionFormasOpen ? <IconChevronUp className="w-3.5 h-3.5" /> : <IconChevronDown className="w-3.5 h-3.5" />}
++                                    </button>
++                                    {sectionFormasOpen && (
++                                        <div className="space-y-4 animate-in fade-in slide-in-from-top-1 duration-150">
++                                            <div>
++                                                <span className="text-[9px] font-bold text-gray-400 dark:text-gray-500 uppercase block mb-2">Seleccionar Figura</span>
++                                                <div className="grid grid-cols-4 gap-1.5">
++                                                    {GEO_TOOLS.filter(gt => gt.id !== 'pen').map((gt) => (
++                                                        <button
++                                                            key={gt.id}
++                                                            onClick={() => selectGeoTool(gt.id)}
++                                                            className={`p-2 rounded-xl flex items-center justify-center transition-all hover:scale-105 ${tool === gt.id ? 'bg-primary text-white shadow-sm' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'}`}
++                                                            title={gt.label}
++                                                        >
++                                                            <gt.icon className="w-4 h-4" />
++                                                        </button>
++                                                    ))}
++                                                </div>
++                                            </div>
+ 
+-                                    {/* Pressure Weight */}
+-                                    {drawStyle === 'ink' && (
+-                                        <div>
+-                                            <div className="flex justify-between text-[11px] font-semibold text-gray-600 dark:text-gray-400">
+-                                                <span>Sensibilidad Presión</span>
+-                                                <span className="text-primary font-bold">{Math.round((currentStrokeOptions.pressureWeight ?? 0.5) * 100)}%</span>
++                                            <div className="pt-2 border-t border-gray-100 dark:border-gray-800">
++                                                <span className="text-[9px] font-bold text-gray-400 dark:text-gray-500 uppercase block mb-2">Estilo de Figura</span>
++                                                <div className="space-y-3">
++                                                    <div className="flex items-center justify-between">
++                                                        <label className="flex items-center gap-2 cursor-pointer">
++                                                            <input
++                                                                type="checkbox"
++                                                                checked={isStroked}
++                                                                onChange={e => onToggleStroke(e.target.checked)}
++                                                                className="rounded text-primary focus:ring-primary h-3.5 w-3.5"
++                                                            />
++                                                            <span className="text-xs font-semibold text-gray-600 dark:text-gray-300 flex items-center gap-1">
++                                                                <IconBorder className="w-3.5 h-3.5" /> Contorno
++                                                            </span>
++                                                        </label>
++                                                        <ColorPickerButton
++                                                            color={currentColor}
++                                                            onChange={onSetColor}
++                                                            className="w-7 h-7 rounded-full border border-gray-205 shadow-sm"
++                                                            position="top"
++                                                        />
++                                                    </div>
++
++                                                    <div className="flex items-center justify-between">
++                                                        <label className="flex items-center gap-2 cursor-pointer">
++                                                            <input
++                                                                type="checkbox"
++                                                                checked={isFilled}
++                                                                onChange={e => onToggleFill(e.target.checked)}
++                                                                className="rounded text-primary focus:ring-primary h-3.5 w-3.5"
++                                                            />
++                                                            <span className="text-xs font-semibold text-gray-600 dark:text-gray-300 flex items-center gap-1">
++                                                                <IconFill className="w-3.5 h-3.5" /> Relleno
++                                                            </span>
++                                                        </label>
++                                                        <ColorPickerButton
++                                                            color={fillColor}
++                                                            onChange={onSetFillColor}
++                                                            className="w-7 h-7 rounded-md border border-gray-205 shadow-sm"
++                                                            position="top"
++                                                        />
++                                                    </div>
++
++                                                    {!isStroked && !isFilled && (
++                                                        <p className="text-[9px] text-red-500 italic text-center pt-1 font-bold">¡Seleccione al menos uno!</p>
++                                                    )}
++                                                </div>
+                                             </div>
+-                                            <input
+-                                                type="range" min="0" max="1" step="0.05"
+-                                                value={currentStrokeOptions.pressureWeight ?? 0.5}
+-                                                onChange={e => onUpdatePreset(activePresetIdx, { options: { ...currentStrokeOptions, pressureWeight: parseFloat(e.target.value) } })}
+-                                                className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary"
+-                                            />
+                                         </div>
+                                     )}
++                                </div>
++                            )}
+ 
+-                                    {/* Velocity Weight */}
+-                                    {drawStyle === 'ink' && (
+-                                        <div>
+-                                            <div className="flex justify-between text-[11px] font-semibold text-gray-600 dark:text-gray-400">
+-                                                <span>Sensibilidad Velocidad</span>
+-                                                <span className="text-primary font-bold">{Math.round((currentStrokeOptions.velocityWeight ?? 0.5) * 100)}%</span>
++                            {/* ACCORDION: DINÁMICAS AVANZADAS */}
++                            <div className="border-t border-gray-100 dark:border-gray-850 pt-3 pb-1">
++                                <button
++                                    onClick={() => setSectionDinamicasOpen(!sectionDinamicasOpen)}
++                                    className="flex items-center justify-between w-full text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
++                                >
++                                    <span>Dinámicas Avanzadas</span>
++                                    {sectionDinamicasOpen ? <IconChevronUp className="w-3.5 h-3.5" /> : <IconChevronDown className="w-3.5 h-3.5" />}
++                                </button>
++                                {sectionDinamicasOpen && (
++                                    <div className="mt-3 space-y-4 animate-in fade-in slide-in-from-top-1 duration-150">
++                                        <div className="space-y-2">
++                                            <div className="flex items-center gap-2 cursor-pointer p-0.5 rounded transition-colors hover:bg-gray-50 dark:hover:bg-gray-800">
++                                                <input
++                                                    type="checkbox"
++                                                    checked={currentStrokeOptions.isNaturalMarker || false}
++                                                    onChange={e => onUpdatePreset(activePresetIdx, { options: { ...currentStrokeOptions, isNaturalMarker: e.target.checked } })}
++                                                    className="peer h-3.5 w-3.5 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
++                                                    id="opt-nat-marker"
++                                                />
++                                                <label htmlFor="opt-nat-marker" className="text-xs font-semibold text-gray-600 dark:text-gray-300 cursor-pointer">Efecto Rotulador</label>
+                                             </div>
+-                                            <input
+-                                                type="range" min="0" max="1" step="0.05"
+-                                                value={currentStrokeOptions.velocityWeight ?? 0.5}
+-                                                onChange={e => onUpdatePreset(activePresetIdx, { options: { ...currentStrokeOptions, velocityWeight: parseFloat(e.target.value) } })}
+-                                                className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary"
+-                                            />
+-                                        </div>
+-                                    )}
+ 
+-                                    {/* Roughness */}
+-                                    <div>
+-                                        <div className="flex justify-between text-[11px] font-semibold text-gray-600 dark:text-gray-400">
+-                                            <span>Vibración Línea (Jitter)</span>
+-                                            <span className="text-primary font-bold">{currentStrokeOptions.roughness || 0}</span>
++                                            {currentStrokeOptions.isNaturalMarker && (
++                                                <div className="space-y-1 p-2 bg-gray-50 dark:bg-gray-800/40 rounded-xl animate-in slide-in-from-top-1 fade-in">
++                                                    <div className="flex justify-between text-[11px] font-semibold text-gray-600 dark:text-gray-400">
++                                                        <span>Textura (Ruido)</span>
++                                                        <span>{(currentStrokeOptions.markerTextureScale ?? 0.1).toFixed(2)}</span>
++                                                    </div>
++                                                    <input
++                                                        type="range" min="0.01" max="0.5" step="0.01"
++                                                        value={currentStrokeOptions.markerTextureScale ?? 0.1}
++                                                        onChange={e => onUpdatePreset(activePresetIdx, { options: { ...currentStrokeOptions, markerTextureScale: parseFloat(e.target.value) } })}
++                                                        className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary"
++                                                    />
++                                                </div>
++                                            )}
+                                         </div>
+-                                        <input
+-                                            type="range" min="0" max="10" step="1"
+-                                            value={currentStrokeOptions.roughness || 0}
+-                                            onChange={e => onUpdatePreset(activePresetIdx, { options: { ...currentStrokeOptions, roughness: parseInt(e.target.value) } })}
+-                                            className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary"
+-                                        />
+-                                    </div>
+ 
+-                                    {/* Stroke Width Jitter */}
+-                                    <div>
+-                                        <div className="flex justify-between text-[11px] font-semibold text-gray-600 dark:text-gray-400">
+-                                            <span>Jitter Grosor</span>
+-                                            <span className="text-primary font-bold">{(currentStrokeOptions.strokeWidthJitter || 0).toFixed(1)}</span>
+-                                        </div>
+-                                        <input
+-                                            type="range" min="0" max="2" step="0.1"
+-                                            value={currentStrokeOptions.strokeWidthJitter || 0}
+-                                            onChange={e => onUpdatePreset(activePresetIdx, { options: { ...currentStrokeOptions, strokeWidthJitter: parseFloat(e.target.value) } })}
+-                                            className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary"
+-                                        />
+-                                    </div>
+-                                </div>
+-                            </div>
++                                        <div className="space-y-3 pt-1 border-t border-gray-100 dark:border-gray-800">
++                                            <div>
++                                                <div className="flex justify-between text-[11px] font-semibold text-gray-600 dark:text-gray-400">
++                                                    <span>Adelgazamiento / Dinámica</span>
++                                                    <span className="text-primary font-bold">{(currentStrokeOptions.thinning ?? 0.5).toFixed(2)}</span>
++                                                </div>
++                                                <input
++                                                    type="range" min="-1" max="1" step="0.05"
++                                                    value={currentStrokeOptions.thinning ?? 0.5}
++                                                    onChange={e => onUpdatePreset(activePresetIdx, { options: { ...currentStrokeOptions, thinning: parseFloat(e.target.value) } })}
++                                                    className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary"
++                                                />
++                                            </div>
+ 
+-                        </div>
+-                    )}
+-                </div>
++                                            <div>
++                                                <div className="flex justify-between text-[11px] font-semibold text-gray-600 dark:text-gray-400">
++                                                    <span>Suavizado</span>
++                                                    <span className="text-primary font-bold">{Math.round((currentStrokeOptions.smoothing ?? 0.5) * 100)}%</span>
++                                                </div>
++                                                <input
++                                                    type="range" min="0" max="1" step="0.05"
++                                                    value={currentStrokeOptions.smoothing ?? 0.5}
++                                                    onChange={e => onUpdatePreset(activePresetIdx, { options: { ...currentStrokeOptions, smoothing: parseFloat(e.target.value) } })}
++                                                    className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary"
++                                                />
++                                            </div>
+ 
+-                {/* GEOMETRIC SHAPES */}
+-                <div className="relative">
+-                    <button
+-                        {...geoHandlers}
+-                        className={`p-2.5 rounded-xl transition-all hover:scale-105 flex items-center ${isShapeTool ? 'bg-primary text-white shadow-md' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'}`}
+-                        title="Formas Geométricas - Doble click para opciones"
+-                    >
+-                        <ActiveGeoIcon className="w-5 h-5" />
+-                        <span className="w-1.5 h-1.5 bg-gray-400 dark:bg-gray-600 rounded-full ml-1"></span>
+-                    </button>
++                                            <div>
++                                                <div className="flex justify-between text-[11px] font-semibold text-gray-600 dark:text-gray-400">
++                                                    <span>Estabilización</span>
++                                                    <span className="text-primary font-bold">{Math.round((currentStrokeOptions.streamline ?? 0.5) * 100)}%</span>
++                                                </div>
++                                                <input
++                                                    type="range" min="0" max="1" step="0.05"
++                                                    value={currentStrokeOptions.streamline ?? 0.5}
++                                                    onChange={e => onUpdatePreset(activePresetIdx, { options: { ...currentStrokeOptions, streamline: parseFloat(e.target.value) } })}
++                                                    className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary"
++                                                />
++                                            </div>
+ 
+-                    {/* Shapes Menu + Fill/Border Controls inside a single popover */}
+-                    {showGeoMenu && (
+-                        <div className="absolute bottom-full mb-3 left-1/2 -translate-x-1/2 bg-white dark:bg-dark-card border border-gray-200 dark:border-gray-700 rounded-2xl shadow-2xl p-4 w-64 z-[130] flex flex-col gap-4 animate-in slide-in-from-bottom-2 duration-150" onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
+-                            
+-                            {/* Shape Selector grid */}
+-                            <div>
+-                                <span className="text-[9px] font-bold text-gray-400 uppercase block mb-2">Seleccionar Forma</span>
+-                                <div className="grid grid-cols-4 gap-2">
+-                                    {GEO_TOOLS.map((gt) => (
+-                                        <button
+-                                            key={gt.id}
+-                                            onClick={() => selectGeoTool(gt.id)}
+-                                            className={`p-2 rounded-xl flex items-center justify-center transition-all hover:scale-105 ${tool === gt.id ? 'bg-primary text-white shadow-sm' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'}`}
+-                                            title={gt.label}
+-                                        >
+-                                            <gt.icon className="w-5 h-5" />
+-                                        </button>
+-                                    ))}
+-                                </div>
+-                            </div>
++                                            {drawStyle === 'ink' && (
++                                                <div>
++                                                    <div className="flex justify-between text-[11px] font-semibold text-gray-600 dark:text-gray-400">
++                                                        <span>Sensibilidad Presión</span>
++                                                        <span className="text-primary font-bold">{Math.round((currentStrokeOptions.pressureWeight ?? 0.5) * 100)}%</span>
++                                                    </div>
++                                                    <input
++                                                        type="range" min="0" max="1" step="0.05"
++                                                        value={currentStrokeOptions.pressureWeight ?? 0.5}
++                                                        onChange={e => onUpdatePreset(activePresetIdx, { options: { ...currentStrokeOptions, pressureWeight: parseFloat(e.target.value) } })}
++                                                        className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary"
++                                                    />
++                                                </div>
++                                            )}
+ 
+-                            <div className="h-px bg-gray-100 dark:bg-gray-700 my-1" />
++                                            {drawStyle === 'ink' && (
++                                                <div>
++                                                    <div className="flex justify-between text-[11px] font-semibold text-gray-600 dark:text-gray-400">
++                                                        <span>Sensibilidad Velocidad</span>
++                                                        <span className="text-primary font-bold">{Math.round((currentStrokeOptions.velocityWeight ?? 0.5) * 100)}%</span>
++                                                    </div>
++                                                    <input
++                                                        type="range" min="0" max="1" step="0.05"
++                                                        value={currentStrokeOptions.velocityWeight ?? 0.5}
++                                                        onChange={e => onUpdatePreset(activePresetIdx, { options: { ...currentStrokeOptions, velocityWeight: parseFloat(e.target.value) } })}
++                                                        className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary"
++                                                    />
++                                                </div>
++                                            )}
+ 
+-                            {/* Shape style options (Stroke & Fill) */}
+-                            <div>
+-                                <span className="text-[9px] font-bold text-gray-400 uppercase block mb-2">Estilos de Forma</span>
+-                                <div className="space-y-3">
+-                                    {/* Stroke Row */}
+-                                    <div className="flex items-center justify-between">
+-                                        <label className="flex items-center gap-2 cursor-pointer">
+-                                            <input type="checkbox" checked={isStroked} onChange={e => onToggleStroke(e.target.checked)} className="rounded text-primary focus:ring-primary" />
+-                                            <span className="text-xs font-semibold text-gray-600 dark:text-gray-300 flex items-center gap-1"><IconBorder className="w-3.5 h-3.5" /> Contorno</span>
+-                                        </label>
+-                                        <ColorPickerButton color={currentColor} onChange={onSetColor} className="w-5.5 h-5.5 rounded-full border border-gray-300 shadow-sm" position="top" />
+-                                    </div>
++                                            <div>
++                                                <div className="flex justify-between text-[11px] font-semibold text-gray-600 dark:text-gray-400">
++                                                    <span>Vibración Línea (Jitter)</span>
++                                                    <span className="text-primary font-bold">{currentStrokeOptions.roughness || 0}</span>
++                                                </div>
++                                                <input
++                                                    type="range" min="0" max="10" step="1"
++                                                    value={currentStrokeOptions.roughness || 0}
++                                                    onChange={e => onUpdatePreset(activePresetIdx, { options: { ...currentStrokeOptions, roughness: parseInt(e.target.value) } })}
++                                                    className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary"
++                                                />
++                                            </div>
+ 
+-                                    {/* Fill Row */}
+-                                    <div className="flex items-center justify-between">
+-                                        <label className="flex items-center gap-2 cursor-pointer">
+-                                            <input type="checkbox" checked={isFilled} onChange={e => onToggleFill(e.target.checked)} className="rounded text-primary focus:ring-primary" />
+-                                            <span className="text-xs font-semibold text-gray-600 dark:text-gray-300 flex items-center gap-1"><IconFill className="w-3.5 h-3.5" /> Relleno</span>
+-                                        </label>
+-                                        <ColorPickerButton color={fillColor} onChange={onSetFillColor} className="w-5.5 h-5.5 rounded-md border border-gray-300 shadow-sm" position="top" />
++                                            <div>
++                                                <div className="flex justify-between text-[11px] font-semibold text-gray-600 dark:text-gray-400">
++                                                    <span>Jitter Grosor</span>
++                                                    <span className="text-primary font-bold">{(currentStrokeOptions.strokeWidthJitter || 0).toFixed(1)}</span>
++                                                </div>
++                                                <input
++                                                    type="range" min="0" max="2" step="0.1"
++                                                    value={currentStrokeOptions.strokeWidthJitter || 0}
++                                                    onChange={e => onUpdatePreset(activePresetIdx, { options: { ...currentStrokeOptions, strokeWidthJitter: parseFloat(e.target.value) } })}
++                                                    className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary"
++                                                />
++                                            </div>
++                                        </div>
+                                     </div>
+-                                    {!isStroked && !isFilled && <p className="text-[9px] text-red-500 italic text-center pt-1 font-bold">¡Seleccione al menos uno!</p>}
+-                                </div>
++                                )}
+                             </div>
++
+                         </div>
+                     )}
+                 </div>

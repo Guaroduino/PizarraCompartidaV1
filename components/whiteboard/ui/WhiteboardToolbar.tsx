@@ -201,7 +201,7 @@ const PresetEditor: React.FC<{
     );
 };
 
-export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = (props) => {
+export const WhiteboardToolbar = React.memo((props: WhiteboardToolbarProps) => {
     const {
         tool, setTool, activePresetIdx, presets, onSelectPreset, onUpdatePreset,
         stylusOnly, setStylusOnly, showLayers, setShowLayers, onImageUpload,
@@ -598,8 +598,68 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = (props) => {
                                         </div>
                                     </div>
 
+                                    {/* Contorno y Relleno - ALWAYS VISIBLE */}
+                                    <div className="space-y-2 pt-1 border-t border-gray-100 dark:border-gray-800">
+                                        <span className="text-[9px] font-bold text-gray-400 dark:text-gray-500 uppercase block mb-1">Estilo de Trazo / Forma</span>
+                                        <div className="space-y-2">
+                                            <div className="flex items-center justify-between">
+                                                <label className="flex items-center gap-2 cursor-pointer">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isStroked}
+                                                        onChange={e => onToggleStroke(e.target.checked)}
+                                                        className="rounded text-primary focus:ring-primary h-3.5 w-3.5"
+                                                    />
+                                                    <span className="text-xs font-semibold text-gray-600 dark:text-gray-300 flex items-center gap-1">
+                                                        <IconBorder className="w-3.5 h-3.5" /> Contorno
+                                                    </span>
+                                                </label>
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setActiveColorPicker({ type: 'stroke' });
+                                                    }}
+                                                    className="w-7 h-7 rounded-full border border-gray-205 dark:border-gray-600 shadow-sm hover:scale-110 transition-transform relative overflow-hidden animate-none"
+                                                    title="Color de Contorno"
+                                                >
+                                                    <div className="absolute inset-0 opacity-20" style={{ backgroundImage: "url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjgiPjxyZWN0IHdpZHRoPSI4IiBoZWlnaHQ9IjgiIGZpbGw9IiNmZmYiLz48cGF0aCBkPSJNTAgMEg0VjBIMHoiIGZpbGw9IiNjY2MiLz48L3N2Zz4=')" }}></div>
+                                                    <div className="absolute inset-0" style={{ backgroundColor: currentColor }}></div>
+                                                </button>
+                                            </div>
+
+                                            <div className="flex items-center justify-between">
+                                                <label className="flex items-center gap-2 cursor-pointer">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isFilled}
+                                                        onChange={e => onToggleFill(e.target.checked)}
+                                                        className="rounded text-primary focus:ring-primary h-3.5 w-3.5"
+                                                    />
+                                                    <span className="text-xs font-semibold text-gray-600 dark:text-gray-300 flex items-center gap-1">
+                                                        <IconFill className="w-3.5 h-3.5" /> Relleno
+                                                    </span>
+                                                </label>
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setActiveColorPicker({ type: 'fill' });
+                                                    }}
+                                                    className="w-7 h-7 rounded-md border border-gray-205 dark:border-gray-600 shadow-sm hover:scale-110 transition-transform relative overflow-hidden animate-none"
+                                                    title="Color de Relleno"
+                                                >
+                                                    <div className="absolute inset-0 opacity-20" style={{ backgroundImage: "url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjgiPjxyZWN0IHdpZHRoPSI4IiBoZWlnaHQ9IjgiIGZpbGw9IiNmZmYiLz48cGF0aCBkPSJNTAgMEg0VjBIMHoiIGZpbGw9IiNjY2MiLz48L3N2Zz4=')" }}></div>
+                                                    <div className="absolute inset-0" style={{ backgroundColor: fillColor }}></div>
+                                                </button>
+                                            </div>
+
+                                            {!isStroked && !isFilled && (
+                                                <p className="text-[9px] text-red-500 italic text-center pt-1 font-bold">¡Seleccione al menos uno!</p>
+                                            )}
+                                        </div>
+                                    </div>
+
                                     {/* Sliders Area - ALWAYS VISIBLE */}
-                                    <div className="space-y-3">
+                                    <div className="space-y-3 border-t border-gray-100 dark:border-gray-800 pt-2.5">
                                         <div>
                                             <div className="flex justify-between text-[11px] font-semibold text-gray-600 dark:text-gray-400 mb-1">
                                                 <span>Grosor</span>
@@ -627,12 +687,27 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = (props) => {
                                                 />
                                             </div>
                                         )}
+
+                                        {drawStyle === 'ink' && (
+                                            <div>
+                                                <div className="flex justify-between text-[11px] font-semibold text-gray-600 dark:text-gray-400 mb-1">
+                                                    <span>Sensibilidad a la Presión</span>
+                                                    <span className="text-primary font-bold">{Math.round((currentStrokeOptions.thinning ?? 0.5) * 100)}%</span>
+                                                </div>
+                                                <input
+                                                    type="range" min="0" max="1" step="0.05"
+                                                    value={currentStrokeOptions.thinning ?? 0.5}
+                                                    onChange={e => onStrokeOptionsChange({ ...currentStrokeOptions, thinning: parseFloat(e.target.value) })}
+                                                    className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary"
+                                                />
+                                            </div>
+                                        )}
                                     </div>
 
                                     {/* Modo de Trazo - ALWAYS VISIBLE */}
-                                    <div className="space-y-1.5 pt-1">
+                                    <div className="space-y-1.5 pt-2 border-t border-gray-100 dark:border-gray-800">
                                         <span className="text-[9px] font-bold text-gray-400 dark:text-gray-500 uppercase block mb-1">Modo de Dibujo</span>
-                                        <div className="grid grid-cols-3 gap-1 p-1 bg-gray-100 dark:bg-gray-800 rounded-xl">
+                                        <div className="grid grid-cols-2 gap-1 p-1 bg-gray-100 dark:bg-gray-800 rounded-xl">
                                             <button
                                                 onClick={() => {
                                                     setDrawStyle('ink');
@@ -642,16 +717,6 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = (props) => {
                                                 className={`py-1 text-[10px] font-bold rounded-lg transition-all ${drawStyle === 'ink' && tool === 'pen' ? 'bg-white dark:bg-gray-700 text-primary shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
                                             >
                                                 Tinta
-                                            </button>
-                                            <button
-                                                onClick={() => {
-                                                    setDrawStyle('freehand');
-                                                    setTool('pen');
-                                                    onUpdatePreset(activePresetIdx, { drawStyle: 'freehand', options: { ...currentStrokeOptions, simulatePressure: false } });
-                                                }}
-                                                className={`py-1 text-[10px] font-bold rounded-lg transition-all ${drawStyle === 'freehand' && tool === 'pen' ? 'bg-white dark:bg-gray-700 text-primary shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
-                                            >
-                                                Fijo
                                             </button>
                                             <button
                                                 onClick={() => {
@@ -666,91 +731,29 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = (props) => {
                                         </div>
                                     </div>
 
-                                    {/* ACCORDION: FORMAS Y ESTILOS (Solo visible en Modo Formas) */}
+                                    {/* ACCORDION: SELECCIONAR FIGURA (Solo visible en Modo Formas) */}
                                     {drawStyle === 'geometric' && (
                                         <div className="border-t border-gray-100 dark:border-gray-850 pt-3">
                                             <button
                                                 onClick={() => setSectionFormasOpen(!sectionFormasOpen)}
                                                 className="flex items-center justify-between w-full text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300 transition-colors mb-2"
                                             >
-                                                <span>Formas y Estilos</span>
+                                                <span>Seleccionar Figura</span>
                                                 {sectionFormasOpen ? <IconChevronUp className="w-3.5 h-3.5" /> : <IconChevronDown className="w-3.5 h-3.5" />}
                                             </button>
                                             {sectionFormasOpen && (
                                                 <div className="space-y-4 animate-in fade-in slide-in-from-top-1 duration-150">
-                                                    <div>
-                                                        <span className="text-[9px] font-bold text-gray-400 dark:text-gray-500 uppercase block mb-2">Seleccionar Figura</span>
-                                                        <div className="grid grid-cols-4 gap-1.5">
-                                                            {GEO_TOOLS.filter(gt => gt.id !== 'pen').map((gt) => (
-                                                                <button
-                                                                    key={gt.id}
-                                                                    onClick={() => selectGeoTool(gt.id)}
-                                                                    className={`p-2 rounded-xl flex items-center justify-center transition-all hover:scale-105 ${tool === gt.id ? 'bg-primary text-white shadow-sm' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'}`}
-                                                                    title={gt.label}
-                                                                >
-                                                                    <gt.icon className="w-4 h-4" />
-                                                                </button>
-                                                            ))}
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="pt-2 border-t border-gray-100 dark:border-gray-800">
-                                                        <span className="text-[9px] font-bold text-gray-400 dark:text-gray-500 uppercase block mb-2">Estilo de Figura</span>
-                                                        <div className="space-y-3">
-                                                            <div className="flex items-center justify-between">
-                                                                <label className="flex items-center gap-2 cursor-pointer">
-                                                                    <input
-                                                                        type="checkbox"
-                                                                        checked={isStroked}
-                                                                        onChange={e => onToggleStroke(e.target.checked)}
-                                                                        className="rounded text-primary focus:ring-primary h-3.5 w-3.5"
-                                                                    />
-                                                                    <span className="text-xs font-semibold text-gray-600 dark:text-gray-300 flex items-center gap-1">
-                                                                        <IconBorder className="w-3.5 h-3.5" /> Contorno
-                                                                    </span>
-                                                                </label>
-                                                                <button
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        setActiveColorPicker({ type: 'stroke' });
-                                                                    }}
-                                                                    className="w-7 h-7 rounded-full border border-gray-205 dark:border-gray-600 shadow-sm hover:scale-110 transition-transform relative overflow-hidden animate-none"
-                                                                    title="Color de Contorno"
-                                                                >
-                                                                    <div className="absolute inset-0 opacity-20" style={{ backgroundImage: "url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjgiPjxyZWN0IHdpZHRoPSI4IiBoZWlnaHQ9IjgiIGZpbGw9IiNmZmYiLz48cGF0aCBkPSJNTAgMEg0VjBIMHoiIGZpbGw9IiNjY2MiLz48L3N2Zz4=')" }}></div>
-                                                                    <div className="absolute inset-0" style={{ backgroundColor: currentColor }}></div>
-                                                                </button>
-                                                            </div>
-
-                                                            <div className="flex items-center justify-between">
-                                                                <label className="flex items-center gap-2 cursor-pointer">
-                                                                    <input
-                                                                        type="checkbox"
-                                                                        checked={isFilled}
-                                                                        onChange={e => onToggleFill(e.target.checked)}
-                                                                        className="rounded text-primary focus:ring-primary h-3.5 w-3.5"
-                                                                    />
-                                                                    <span className="text-xs font-semibold text-gray-600 dark:text-gray-300 flex items-center gap-1">
-                                                                        <IconFill className="w-3.5 h-3.5" /> Relleno
-                                                                    </span>
-                                                                </label>
-                                                                <button
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        setActiveColorPicker({ type: 'fill' });
-                                                                    }}
-                                                                    className="w-7 h-7 rounded-md border border-gray-205 dark:border-gray-600 shadow-sm hover:scale-110 transition-transform relative overflow-hidden animate-none"
-                                                                    title="Color de Relleno"
-                                                                >
-                                                                    <div className="absolute inset-0 opacity-20" style={{ backgroundImage: "url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjgiPjxyZWN0IHdpZHRoPSI4IiBoZWlnaHQ9IjgiIGZpbGw9IiNmZmYiLz48cGF0aCBkPSJNTAgMEg0VjBIMHoiIGZpbGw9IiNjY2MiLz48L3N2Zz4=')" }}></div>
-                                                                    <div className="absolute inset-0" style={{ backgroundColor: fillColor }}></div>
-                                                                </button>
-                                                            </div>
-
-                                                            {!isStroked && !isFilled && (
-                                                                <p className="text-[9px] text-red-500 italic text-center pt-1 font-bold">¡Seleccione al menos uno!</p>
-                                                            )}
-                                                        </div>
+                                                    <div className="grid grid-cols-4 gap-1.5">
+                                                        {GEO_TOOLS.filter(gt => gt.id !== 'pen').map((gt) => (
+                                                            <button
+                                                                key={gt.id}
+                                                                onClick={() => selectGeoTool(gt.id)}
+                                                                className={`p-2 rounded-xl flex items-center justify-center transition-all hover:scale-105 ${tool === gt.id ? 'bg-primary text-white shadow-sm' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'}`}
+                                                                title={gt.label}
+                                                            >
+                                                                <gt.icon className="w-4 h-4" />
+                                                            </button>
+                                                        ))}
                                                     </div>
                                                 </div>
                                             )}
@@ -1096,4 +1099,4 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = (props) => {
             )}
         </div>
     );
-};
+});

@@ -12,7 +12,7 @@ interface TeacherSidePanelProps {
     onDragImageStart: (e: React.DragEvent, imageUrl: string) => void;
 }
 
-const TeacherSidePanel: React.FC<TeacherSidePanelProps> = ({ isOpen, onClose, onDragImageStart }) => {
+const TeacherSidePanel = React.memo(({ isOpen, onClose, onDragImageStart }: TeacherSidePanelProps) => {
     const [activeTab, setActiveTab] = useState<'chat' | 'image'>('chat');
 
     // Chat State
@@ -236,6 +236,6 @@ const TeacherSidePanel: React.FC<TeacherSidePanelProps> = ({ isOpen, onClose, on
             </div>
         </div>
     );
-};
+});
 
 export default TeacherSidePanel;
