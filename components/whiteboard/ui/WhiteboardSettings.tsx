@@ -26,7 +26,7 @@ interface WhiteboardSettingsProps {
 
 export const WhiteboardSettings: React.FC<WhiteboardSettingsProps> = (props) => {
     return (
-        <div className="absolute top-24 right-4 w-80 bg-white/95 dark:bg-dark-card backdrop-blur-xl border border-gray-200 dark:border-gray-700 rounded-2xl shadow-2xl p-4 z-50 animate-in slide-in-from-right-4 pointer-events-auto max-h-[80vh] overflow-y-auto">
+        <div className="glass-panel absolute top-24 right-4 w-80 rounded-2xl shadow-2xl p-4 z-50 animate-in slide-in-from-right-4 pointer-events-auto max-h-[80vh] overflow-y-auto">
             <SettingsContent {...props} />
         </div>
     );

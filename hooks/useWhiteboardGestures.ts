@@ -32,12 +32,13 @@ interface UseWhiteboardGesturesProps {
     finalizeStrokeTransform: () => void;
     lassoPoints: Point[] | null;
     onLassoEnd: (loop: Point[]) => void;
-    updateItemInFirestore: (id: string, type: 'image' | 'text', data: any) => void;
+    updateItemInFirestore: (id: string, type: 'image' | 'text', data: any, prevData?: any) => void;
     transformMode: 'drag' | 'resize' | 'rotate' | 'crop-handle' | 'strokes-drag' | 'strokes-resize' | 'strokes-rotate' | 'strokes-move' | 'pan' | null;
     drawStyle?: DrawStyle;
     activeStrokes: WhiteboardStroke[];
     lockedLayerIds: Set<string>;
     eraserMode: 'freehand' | 'rect' | 'circle';
+    onCameraChangeDirect?: (cam: { x: number, y: number, scale: number }) => void;
 }
 
 export const useWhiteboardGestures = ({
@@ -46,7 +47,7 @@ export const useWhiteboardGestures = ({
     activeImages, activeTexts, setImages, setTexts, strokeSelectionBounds, selectedStrokeIds,
     initialTransformParams, tempStrokeTransform, setTempStrokeTransform, finalizeStrokeTransform,
     lassoPoints, onLassoEnd, updateItemInFirestore, transformMode, drawStyle = 'ink', activeStrokes, lockedLayerIds,
-    eraserMode
+    eraserMode, onCameraChangeDirect
 }: UseWhiteboardGesturesProps) => {
 
     const [currentStroke, setCurrentStroke] = useState<Point[] | null>(null);
@@ -105,6 +106,47 @@ export const useWhiteboardGestures = ({
     const middlePan = useRef(false);
     const lastMiddlePoint = useRef<{ x: number, y: number } | null>(null);
 
+    // Absolute Panning State
+    const panStart = useRef<{ x: number, y: number, camera: { x: number, y: number, scale: number } } | null>(null);
+
+    // Camera RequestAnimationFrame throttling refs
+    const pendingCamera = useRef<{ x: number, y: number, scale: number } | null>(null);
+    const lastCalculatedCamera = useRef<{ x: number, y: number, scale: number } | null>(null);
+    const cameraRafActive = useRef<boolean>(false);
+    const cameraRafId = useRef<number | null>(null);
+
+    const updateCameraRAF = (newCam: { x: number, y: number, scale: number }) => {
+        pendingCamera.current = newCam;
+        lastCalculatedCamera.current = newCam;
+        if (!cameraRafActive.current) {
+            cameraRafActive.current = true;
+            cameraRafId.current = requestAnimationFrame(() => {
+                if (pendingCamera.current) {
+                    if (onCameraChangeDirect) {
+                        onCameraChangeDirect(pendingCamera.current);
+                    } else {
+                        setCamera(pendingCamera.current);
+                    }
+                    pendingCamera.current = null;
+                }
+                cameraRafActive.current = false;
+            });
+        }
+    };
+
+    const commitCameraState = () => {
+        if (lastCalculatedCamera.current) {
+            setCamera(lastCalculatedCamera.current);
+            lastCalculatedCamera.current = null;
+        }
+    };
+
+    useEffect(() => {
+        return () => {
+            if (cameraRafId.current) cancelAnimationFrame(cameraRafId.current);
+        };
+    }, []);
+
     const shapeStartPoint = useRef<Point | null>(null);
     const polylinePoints = useRef<Point[]>([]);
     const arcStage = useRef<number>(0);
@@ -141,6 +183,15 @@ export const useWhiteboardGestures = ({
             (e.currentTarget as Element).setPointerCapture(e.pointerId);
         }
 
+        // Initialize panStart for hand tool or non-teacher
+        if (tool === 'hand' || !isTeacher) {
+            panStart.current = {
+                x: e.clientX,
+                y: e.clientY,
+                camera: { ...camera }
+            };
+        }
+
         // Middle mouse button? start panning mode
         // e.button === 1 indicates middle button for PointerEvent
         // Only enable for mouse pointers
@@ -151,7 +202,11 @@ export const useWhiteboardGestures = ({
         if (e.pointerType === 'mouse' && (e as any).button === 1) {
             if (isNavLocked) return;
             middlePan.current = true;
-            lastMiddlePoint.current = { x: e.clientX, y: e.clientY };
+            panStart.current = {
+                x: e.clientX,
+                y: e.clientY,
+                camera: { ...camera }
+            };
             return;
         }
         // CHECK FOR MULTI-TOUCH GESTURE
@@ -159,6 +214,7 @@ export const useWhiteboardGestures = ({
             isDrawing.current = false;
             setCurrentStroke(null);
             setLassoPoints(null);
+            panStart.current = null; // Clear single-finger pan
 
             if (isNavLocked) return;
 
@@ -342,22 +398,43 @@ export const useWhiteboardGestures = ({
             const target = e.target as SVGElement;
             const handleType = target.getAttribute('data-handle');
             if (handleType && selectedId) {
+                const item = activeImages.find(i => i.id === selectedId) || activeTexts.find(t => t.id === selectedId);
+                if (item) {
+                    initialTransformParams.current = {
+                        itemSnapshot: { ...item }
+                    };
+                }
                 setTransformMode(handleType as any);
                 return;
             }
             if (!isCropMode) {
                 const selectableTexts = activeTexts.filter(t => !lockedLayerIds.has(t.layerId || ''));
                 const clickedText = [...selectableTexts].reverse().find(txt => x >= txt.x && x <= txt.x + txt.width && y >= txt.y && y <= txt.y + txt.height);
-                if (clickedText) { setSelectedId(clickedText.id); setSelectedType('text'); setTransformMode('drag'); return; }
+                if (clickedText) {
+                    initialTransformParams.current = {
+                        itemSnapshot: { ...clickedText }
+                    };
+                    setSelectedId(clickedText.id); setSelectedType('text'); setTransformMode('drag'); return;
+                }
                 const selectableImages = activeImages.filter(i => !lockedLayerIds.has(i.layerId || ''));
                 const clickedImg = [...selectableImages].reverse().find(img => x >= img.x && x <= img.x + img.width && y >= img.y && y <= img.y + img.height);
-                if (clickedImg) { setSelectedId(clickedImg.id); setSelectedType('image'); setTransformMode('drag'); return; }
+                if (clickedImg) {
+                    initialTransformParams.current = {
+                        itemSnapshot: { ...clickedImg }
+                    };
+                    setSelectedId(clickedImg.id); setSelectedType('image'); setTransformMode('drag'); return;
+                }
 
                 // Clicked empty canvas:
                 setSelectedId(null); setSelectedType(null);
 
                 if (spacePressed.current || e.pointerType === 'touch') {
                     setTransformMode('pan');
+                    panStart.current = {
+                        x: e.clientX,
+                        y: e.clientY,
+                        camera: { ...camera }
+                    };
                 } else {
                     // Stylus/Mouse draws lasso selection loop on empty canvas
                     setLassoPoints([{ x, y, pressure: 0.5 }]);
@@ -377,7 +454,8 @@ export const useWhiteboardGestures = ({
                 shapeStartPoint.current = { x, y, pressure: 0.5 };
                 setCurrentStroke([{ x, y, pressure: 0.5 }]);
             } else {
-                const inputPressure = e.pointerType === 'pen' ? e.pressure : 0.5;
+                const isStylusInput = e.pointerType === 'pen' || (e.pressure > 0 && e.pressure !== 0.5 && e.pressure !== 1);
+                const inputPressure = isStylusInput ? e.pressure : 0.5;
                 const mixedPressure = inputPressure * (strokeOpts.pressureWeight ?? 1);
                 setCurrentStroke([{ x, y, pressure: mixedPressure }]);
             }
@@ -401,13 +479,17 @@ export const useWhiteboardGestures = ({
         // eslint-disable-next-line @typescript-eslint/ban-ts-comment
         // @ts-ignore
         if (middlePan.current && e.pointerType === 'mouse') {
-            const last = lastMiddlePoint.current;
-            if (!last) return;
-            const dx = e.clientX - last.x;
-            const dy = e.clientY - last.y;
-            lastMiddlePoint.current = { x: e.clientX, y: e.clientY };
             if (isNavLocked) return;
-            setCamera(prev => ({ x: prev.x + dx, y: prev.y + dy, scale: prev.scale }));
+            const start = panStart.current;
+            if (start) {
+                const dx = e.clientX - start.x;
+                const dy = e.clientY - start.y;
+                updateCameraRAF({
+                    x: start.camera.x + dx,
+                    y: start.camera.y + dy,
+                    scale: start.camera.scale
+                });
+            }
             return;
         }
 
@@ -432,18 +514,23 @@ export const useWhiteboardGestures = ({
                 const newX = currentCenter.x - (worldFocusX * newScale);
                 const newY = currentCenter.y - (worldFocusY * newScale);
 
-                setCamera({ x: newX, y: newY, scale: newScale });
+                updateCameraRAF({ x: newX, y: newY, scale: newScale });
             }
             return;
         }
 
         if (((tool === 'hand' || !isTeacher) || (tool === 'move' && transformMode === 'pan')) && activePointers.current.has(e.pointerId)) {
             if (isNavLocked) return;
-            setCamera(prev => ({
-                ...prev,
-                x: prev.x + e.movementX,
-                y: prev.y + e.movementY
-            }));
+            const start = panStart.current;
+            if (start) {
+                const dx = e.clientX - start.x;
+                const dy = e.clientY - start.y;
+                updateCameraRAF({
+                    x: start.camera.x + dx,
+                    y: start.camera.y + dy,
+                    scale: start.camera.scale
+                });
+            }
             return;
         }
 
@@ -454,11 +541,42 @@ export const useWhiteboardGestures = ({
         const isContinuousShape = (tool === 'polyline' || tool === 'arc') && isDrawing.current;
         if (!activePointers.current.has(e.pointerId) && !isContinuousShape) return;
 
-        const { x, y } = screenToWorld(e.clientX, e.clientY);
+        // --- SYNCHRONOUS EVENT DATA CAPTURE ---
+        const clientX = e.clientX;
+        const clientY = e.clientY;
+        const pointerType = e.pointerType;
+        const pressure = e.pressure;
+        const movementX = e.movementX;
+        const movementY = e.movementY;
 
+        const useStylus = strokeOpts.useStylusPressure !== false;
+
+        const coalesced = (e.nativeEvent && typeof e.nativeEvent.getCoalescedEvents === 'function')
+            ? e.nativeEvent.getCoalescedEvents().map(ce => {
+                const isStylus = useStylus && (ce.pointerType === 'pen' || (ce.pressure > 0 && ce.pressure !== 0.5 && ce.pressure !== 1));
+                return {
+                    clientX: ce.clientX,
+                    clientY: ce.clientY,
+                    pressure: isStylus ? ce.pressure : 0.5
+                };
+            })
+            : [];
+
+        if (coalesced.length === 0) {
+            const isStylus = useStylus && (pointerType === 'pen' || (pressure > 0 && pressure !== 0.5 && pressure !== 1));
+            coalesced.push({
+                clientX,
+                clientY,
+                pressure: isStylus ? pressure : 0.5
+            });
+        }
+
+        // Schedule RAF for coordinate mapping and canvas updates
         if (rafRef.current) cancelAnimationFrame(rafRef.current);
 
         rafRef.current = requestAnimationFrame(() => {
+            const { x, y } = screenToWorld(clientX, clientY);
+
             const shapes = ['line', 'circle', 'polyline', 'arc', 'square', 'rectangle', 'parallelogram'];
             if (isDrawing.current && shapes.includes(tool)) {
                 if (tool === 'line' && shapeStartPoint.current) setCurrentStroke(getLinePoints(shapeStartPoint.current, { x, y, pressure: 0.5 }, strokeOpts));
@@ -515,8 +633,8 @@ export const useWhiteboardGestures = ({
             }
 
             if ((tool === 'move' || isCropMode) && selectedId && transformMode) {
-                const dx = e.movementX / camera.scale;
-                const dy = e.movementY / camera.scale;
+                const dx = movementX / camera.scale;
+                const dy = movementY / camera.scale;
                 if (selectedId) {
                     const targetType = activeImages.find(i => i.id === selectedId) ? 'image' : 'text';
                     if (targetType === 'image') {
@@ -546,26 +664,15 @@ export const useWhiteboardGestures = ({
                         setCurrentStroke([shapeStartPoint.current, { x, y, pressure: 0.5 }]);
                     }
                 } else {
-                    const coalescedEvents = (e.nativeEvent && typeof e.nativeEvent.getCoalescedEvents === 'function')
-                        ? e.nativeEvent.getCoalescedEvents()
-                        : [];
-
                     const pointsToAdd: Point[] = [];
-                    if (coalescedEvents.length > 0) {
-                        coalescedEvents.forEach(ce => {
-                            const { x: cx, y: cy } = screenToWorld(ce.clientX, ce.clientY);
-                            const inputPressure = ce.pointerType === 'pen' ? ce.pressure : 0.5;
-                            const mixedPressure = inputPressure * (strokeOpts.pressureWeight ?? 1);
-                            pointsToAdd.push({ x: cx, y: cy, pressure: mixedPressure });
-                        });
-                    } else {
-                        const inputPressure = e.pointerType === 'pen' ? e.pressure : 0.5;
-                        const mixedPressure = inputPressure * (strokeOpts.pressureWeight ?? 1);
-                        pointsToAdd.push({ x, y, pressure: mixedPressure });
-                    }
+                    coalesced.forEach(ce => {
+                        const { x: cx, y: cy } = screenToWorld(ce.clientX, ce.clientY);
+                        const mixedPressure = ce.pressure * (strokeOpts.pressureWeight ?? 1);
+                        pointsToAdd.push({ x: cx, y: cy, pressure: mixedPressure });
+                    });
 
                     const currentTime = Date.now();
-                    lastDrawPoint.current = { x, y, time: currentTime };
+                    lastDrawPoint.current = { x: clientX, y: clientY, time: currentTime };
 
                     setCurrentStroke(prev => {
                         const base = prev || [];
@@ -600,17 +707,20 @@ export const useWhiteboardGestures = ({
         if (middlePan.current && e.pointerType === 'mouse' && (e as any).button === 1) {
             middlePan.current = false;
             lastMiddlePoint.current = null;
+            panStart.current = null;
             setIsInteracting(false);
             return;
         }
 
         if (activePointers.current.size < 2) {
             gestureStart.current = null;
+            commitCameraState();
         }
 
         if (rafRef.current) cancelAnimationFrame(rafRef.current);
 
         if (activePointers.current.size === 0) {
+            panStart.current = null;
             if (!(tool === 'polyline' && isDrawing.current) && !(tool === 'arc' && isDrawing.current)) {
                 setIsInteracting(false);
             }
@@ -641,9 +751,11 @@ export const useWhiteboardGestures = ({
                 const item = activeImages.find(i => i.id === selectedId) || activeTexts.find(t => t.id === selectedId);
                 if (item) {
                     const type = activeImages.find(i => i.id === selectedId) ? 'image' : 'text';
-                    updateItemInFirestore(selectedId, type, { x: item.x, y: item.y, width: item.width, height: item.height, rotation: item.rotation });
+                    const prevSnapshot = initialTransformParams.current?.itemSnapshot;
+                    updateItemInFirestore(selectedId, type, { x: item.x, y: item.y, width: item.width, height: item.height, rotation: item.rotation }, prevSnapshot);
                 }
                 setTransformMode(null);
+                initialTransformParams.current = null;
                 setIsInteracting(false);
             } else if (transformMode === 'pan') {
                 setTransformMode(null);
@@ -678,10 +790,12 @@ export const useWhiteboardGestures = ({
         activePointers.current.delete(e.pointerId);
         if (activePointers.current.size < 2) {
             gestureStart.current = null;
+            commitCameraState();
         }
         if (middlePan.current) {
             middlePan.current = false;
             lastMiddlePoint.current = null;
+            panStart.current = null;
         }
 
         if (activePointers.current.size === 0) {
@@ -691,6 +805,7 @@ export const useWhiteboardGestures = ({
             polylinePoints.current = [];
             shapeStartPoint.current = null;
             arcStage.current = 0;
+            panStart.current = null;
             setIsInteracting(false);
         }
     };

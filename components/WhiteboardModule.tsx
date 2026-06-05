@@ -1,7 +1,7 @@
 // File: src/components/WhiteboardModule.tsx
 
 import React, { useState, useRef, useMemo, useCallback, useEffect } from 'react';
-import { addDoc, doc, updateDoc, writeBatch, collection, deleteField, arrayUnion, query, where, onSnapshot, deleteDoc, getDocs } from "firebase/firestore";
+import { setDoc, addDoc, doc, updateDoc, writeBatch, collection, deleteField, arrayUnion, query, where, onSnapshot, deleteDoc, getDocs } from "firebase/firestore";
 import { db } from '../services/firebase';
 import type { User, WhiteboardStroke, WhiteboardImage, WhiteboardText, Point, GridConfig, LibraryItem } from '../types';
 import { getStroke } from 'perfect-freehand';
@@ -18,7 +18,7 @@ import { useWhiteboardHistory } from '../hooks/useWhiteboardHistory';
 import { useWhiteboardSelection } from '../hooks/useWhiteboardSelection';
 import { useWhiteboardGestures } from '../hooks/useWhiteboardGestures';
 import ConfirmModal from './ConfirmModal';
-import { IconUndo, IconRedo, IconDeviceFloppy, IconHand, IconArrowsExpand, IconPlus, IconX, IconTrash, IconClipboardCopy, IconLayers, IconCrop, IconClipboard, IconArrowLeft, IconChevronUp, IconDownload, IconUpload, IconLockClosed, IconLockOpen, IconCloud, IconCloudOff, IconDashboard, IconLibrary, IconSwitchLocation, IconGroup, IconUngroup, IconCheck, IconBook, IconSidebar, IconPencil } from './Icons';
+import { IconUndo, IconRedo, IconDeviceFloppy, IconHand, IconArrowsExpand, IconPlus, IconX, IconTrash, IconClipboardCopy, IconLayers, IconCrop, IconClipboard, IconArrowLeft, IconChevronUp, IconChevronDown, IconDownload, IconUpload, IconLockClosed, IconLockOpen, IconCloud, IconCloudOff, IconDashboard, IconLibrary, IconSwitchLocation, IconGroup, IconUngroup, IconCheck, IconBook, IconSidebar, IconPencil } from './Icons';
 import type { ExtendedStrokeOptions, ExtendedWhiteboardText, ToolType, ToolPreset, DrawStyle, ShapeStyle } from '../types/whiteboardTypes';
 import { QuickLibraryBar } from './whiteboard/library/QuickLibraryBar';
 import { LibraryManager } from './whiteboard/library/LibraryManager';
@@ -117,11 +117,13 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
     const [isFollowingTeacher, setIsFollowingTeacher] = useState(true);
     const [isSyncPaused, setIsSyncPaused] = useState(false);
     const [pendingStrokes, setPendingStrokes] = useState<WhiteboardStroke[]>([]);
+    const [syncingStrokes, setSyncingStrokes] = useState<WhiteboardStroke[]>([]);
     const [pendingImages, setPendingImages] = useState<WhiteboardImage[]>([]);
     const [pendingTexts, setPendingTexts] = useState<ExtendedWhiteboardText[]>([]);
     const [pendingKeyframes, setPendingKeyframes] = useState<{ [pageId: string]: string[] }>({});
 
     const [activeKeyframeId, setActiveKeyframeId] = useState<string>('kf_default');
+    const [showBoardDropdown, setShowBoardDropdown] = useState(false);
 
     // --- Library State ---
     const [showLibraryManager, setShowLibraryManager] = useState(false);
@@ -507,7 +509,9 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
     const lockedLayerIds = useMemo(() => new Set(layers.filter(l => l.locked).map(l => l.id)), [layers]);
 
     const activeStrokes = useMemo(() => {
-        const allStrokes = [...strokes, ...pendingStrokes];
+        const strokeIds = new Set(strokes.map(s => s.id));
+        const filteredSyncing = syncingStrokes.filter(s => !strokeIds.has(s.id));
+        const allStrokes = [...strokes, ...pendingStrokes, ...filteredSyncing];
         return allStrokes.filter(s => {
             if (s.deleted) return false;
             if (s.layerId && !visibleLayerIds.has(s.layerId)) return false;
@@ -515,7 +519,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
             if (!s.keyframeId && activeKeyframeId === currentPageKeyframes[0]) return true;
             return false;
         });
-    }, [strokes, pendingStrokes, visibleLayerIds, activeKeyframeId, currentPageKeyframes]);
+    }, [strokes, pendingStrokes, syncingStrokes, visibleLayerIds, activeKeyframeId, currentPageKeyframes]);
 
     const activeImages = useMemo(() => {
         const allImages = [...images, ...pendingImages];
@@ -714,6 +718,11 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
             (finalOptions as any).taperStart = 0;
             (finalOptions as any).taperEnd = 0;
             (finalOptions as any).cap = 'butt';
+        } else if (shouldUsePressure) {
+            const uniquePressures = new Set(points.map(p => p.pressure).filter(p => p !== undefined && p !== 0.5 && p !== 1.0));
+            if (uniquePressures.size > 1) {
+                finalOptions.simulatePressure = false;
+            }
         }
 
         if (tool === 'eraser') {
@@ -822,13 +831,29 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
             return;
         }
 
+        // Pre-calculate cachedPath
+        let cachedPath = '';
+        if (effectiveStroked) {
+            if (isSharpTool) {
+                cachedPath = getStrokePath(points);
+            } else {
+                const strokeOptions = {
+                    size: size,
+                    ...finalOptions
+                };
+                const outlinePoints = getStroke(points, strokeOptions);
+                cachedPath = getSvgPathFromStroke(outlinePoints);
+            }
+        }
+
         if (isSyncPaused) {
             const roundedPath = points.map(p => ({ x: Math.round(p.x * 100) / 100, y: Math.round(p.y * 100) / 100, pressure: Math.round(p.pressure * 100) / 100 }));
             const tempId = `temp_stroke_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
             const newStroke: WhiteboardStroke = {
                 id: tempId, points: roundedPath, color, size, opacity, timestamp: Date.now(),
                 boardId: activeBoardId, pageId: activePageId, layerId: activeLayerId, keyframeId: activeKeyframeId,
-                type: tool === 'pen' ? 'pen' : 'eraser', // Simplified, actual handleStrokeComplete handles full types deleted: false, options: finalOptions
+                type: tool === 'pen' ? 'pen' : 'eraser', deleted: false, options: finalOptions,
+                cachedPath
             };
             setPendingStrokes(prev => [...prev, newStroke]);
             return;
@@ -837,13 +862,30 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
         setIsSyncing(true);
         try {
             const roundedPath = points.map(p => ({ x: Math.round(p.x * 100) / 100, y: Math.round(p.y * 100) / 100, pressure: Math.round(p.pressure * 100) / 100 }));
+            
+            const docRef = doc(collection(db, 'whiteboardStrokes'));
+            const strokeId = docRef.id;
+
             const strokeData = {
                 points: roundedPath, color, size, opacity, timestamp: Date.now(),
                 boardId: activeBoardId, pageId: activePageId, layerId: activeLayerId, keyframeId: activeKeyframeId,
-                type: tool === 'pen' ? 'pen' : 'eraser', deleted: false, options: finalOptions
+                type: (tool === 'pen' ? 'pen' : 'eraser') as 'pen' | 'eraser', deleted: false, options: finalOptions,
+                cachedPath
             };
-            const docRef = await addDoc(collection(db, 'whiteboardStrokes'), strokeData);
-            recordAction({ type: 'create', targetType: 'stroke', targetId: docRef.id, data: strokeData });
+
+            const syncingStroke: WhiteboardStroke = {
+                id: strokeId,
+                ...strokeData
+            };
+
+            setSyncingStrokes(prev => [...prev, syncingStroke]);
+
+            setTimeout(() => {
+                setSyncingStrokes(prev => prev.filter(s => s.id !== strokeId));
+            }, 1500);
+
+            await setDoc(docRef, strokeData);
+            recordAction({ type: 'create', targetType: 'stroke', targetId: strokeId, data: strokeData });
         } catch (e) { console.error(e); } finally { setIsSyncing(false); }
     };
 
@@ -863,7 +905,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
         if (newSelectedIds.length === 0) {
             const selectedImg = activeImages.find(img => {
                 if (lockedLayerIds.has(img.layerId || '')) return false;
-                const center = { x: img.x + img.width / 2, y: img.y + img.height / 2 };
+                const center = { x: img.x + img.width / 2, y: img.y + img.height / 2, pressure: 0.5 };
                 return isPointInPolygon(center, closedLoop);
             });
             if (selectedImg) {
@@ -874,7 +916,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
 
             const selectedTxt = activeTexts.find(txt => {
                 if (lockedLayerIds.has(txt.layerId || '')) return false;
-                const center = { x: txt.x + txt.width / 2, y: txt.y + txt.height / 2 };
+                const center = { x: txt.x + txt.width / 2, y: txt.y + txt.height / 2, pressure: 0.5 };
                 return isPointInPolygon(center, closedLoop);
             });
             if (selectedTxt) {
@@ -899,6 +941,14 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
         try { await updateDoc(doc(db, coll, id), data); } finally { setIsSyncing(false); }
     }, [setIsSyncing]);
 
+    const contentGroupRef = useRef<SVGGElement | null>(null);
+
+    const handleCameraChangeDirect = useCallback((cam: { x: number, y: number, scale: number }) => {
+        if (contentGroupRef.current) {
+            contentGroupRef.current.setAttribute('transform', `translate(${cam.x}, ${cam.y}) scale(${cam.scale})`);
+        }
+    }, []);
+
     const handleCloseSidePanel = useCallback(() => setIsSidePanelOpen(false), []);
 
     const handleDragSidePanelImageStart = useCallback((e: React.DragEvent, url: string) => {
@@ -919,7 +969,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
         activeImages: localImages, activeTexts: localTexts, setImages: setLocalImages, setTexts: setLocalTexts,
         strokeSelectionBounds, selectedStrokeIds, initialTransformParams, tempStrokeTransform, setTempStrokeTransform, finalizeStrokeTransform,
         onLassoEnd: handleLassoEnd, updateItemInFirestore: handleUpdateFirestore, transformMode, drawStyle, activeStrokes, lockedLayerIds,
-        eraserMode
+        eraserMode, onCameraChangeDirect: handleCameraChangeDirect
     });
 
     // ... (Library and Import functions omitted for brevity, keeping same logic as before) ...
@@ -997,12 +1047,23 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                             strokeLinejoin="round"
                         />
                     ) : (
-                        <path
-                            d={getSvgPathFromStroke(getStroke(currentStroke, { size, ...strokeOpts, simulatePressure: drawStyle === 'ink' }))}
-                            fill={tool === 'eraser' ? 'rgba(239, 68, 68, 0.4)' : color}
-                            fillOpacity={tool === 'eraser' ? 0.4 : 1}
-                            className={tool === 'eraser' ? 'animate-pulse' : ''}
-                        />
+                        (() => {
+                            let liveSimulatePressure = drawStyle === 'ink';
+                            if (strokeOpts.useStylusPressure !== false) {
+                                const uniquePressures = new Set(currentStroke.map(p => p.pressure).filter(p => p !== undefined && p !== 0.5 && p !== 1.0));
+                                if (uniquePressures.size > 1) {
+                                    liveSimulatePressure = false;
+                                }
+                            }
+                            return (
+                                <path
+                                    d={getSvgPathFromStroke(getStroke(currentStroke, { size, ...strokeOpts, simulatePressure: liveSimulatePressure }))}
+                                    fill={tool === 'eraser' ? 'rgba(239, 68, 68, 0.4)' : color}
+                                    fillOpacity={tool === 'eraser' ? 0.4 : 1}
+                                    className={tool === 'eraser' ? 'animate-pulse' : ''}
+                                />
+                            );
+                        })()
                     )
                 )}
             </g>
@@ -1799,6 +1860,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                     </defs>
 
                     <g
+                        ref={contentGroupRef}
                         transform={contentTransform}
                         style={{
                             willChange: isInteracting ? 'transform' : 'auto',
@@ -1806,32 +1868,35 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                         }}
                         shapeRendering={isInteracting ? 'optimizeSpeed' : 'geometricPrecision'}
                     >
-                        <g filter="url(#shadow)"><rect x="0" y="0" width={boardSettings.width || 1920} height={boardSettings.height || 1080} fill={boardSettings.bgColor} />{boardSettings.bgImageUrl && <image href={boardSettings.bgImageUrl} x="0" y="0" width={boardSettings.width || 1920} height={boardSettings.height || 1080} preserveAspectRatio="xMidYMid slice" onDragStart={(e) => e.preventDefault()} style={{ pointerEvents: 'none' }} />}</g>
+                        {/* Static Graphics (Background, Grid, BoardLayers) isolated in a GPU compositor layer */}
+                        <g style={{ willChange: 'transform' }}>
+                            <g filter="url(#shadow)"><rect x="0" y="0" width={boardSettings.width || 1920} height={boardSettings.height || 1080} fill={boardSettings.bgColor} />{boardSettings.bgImageUrl && <image href={boardSettings.bgImageUrl} x="0" y="0" width={boardSettings.width || 1920} height={boardSettings.height || 1080} preserveAspectRatio="xMidYMid slice" onDragStart={(e) => e.preventDefault()} style={{ pointerEvents: 'none' }} />}</g>
 
-                        {shouldRenderGrid && (
-                            <g pointerEvents="none">
-                                <rect width="100000" height="100000" x="-50000" y="-50000" fill="url(#grid-minor)" />
-                                <rect width="100000" height="100000" x="-50000" y="-50000" fill="url(#grid-medium)" />
-                                <rect width="100000" height="100000" x="-50000" y="-50000" fill="url(#grid-major)" />
-                            </g>
-                        )}
+                            {shouldRenderGrid && (
+                                <g pointerEvents="none">
+                                    <rect width="100000" height="100000" x="-50000" y="-50000" fill="url(#grid-minor)" />
+                                    <rect width="100000" height="100000" x="-50000" y="-50000" fill="url(#grid-medium)" />
+                                    <rect width="100000" height="100000" x="-50000" y="-50000" fill="url(#grid-major)" />
+                                </g>
+                            )}
 
-                        <BoardLayers
-                            layers={layers}
-                            localImages={localImages}
-                            localTexts={localTexts}
-                            activeStrokes={activeStrokes}
-                            selectedStrokeIds={selectedStrokeIds}
-                            selectedId={selectedId}
-                            isTeacher={isTeacher}
-                            tool={tool}
-                            cameraScale={camera.scale}
-                            tempStrokeTransform={tempStrokeTransform}
-                            strokeSelectionBounds={strokeSelectionBounds}
-                            setEditingTextId={setEditingTextId}
-                            setTool={setTool}
-                            editingTextId={editingTextId}
-                        />
+                            <BoardLayers
+                                layers={layers}
+                                localImages={localImages}
+                                localTexts={localTexts}
+                                activeStrokes={activeStrokes}
+                                selectedStrokeIds={selectedStrokeIds}
+                                selectedId={selectedId}
+                                isTeacher={isTeacher}
+                                tool={tool}
+                                cameraScale={camera.scale}
+                                tempStrokeTransform={tempStrokeTransform}
+                                strokeSelectionBounds={strokeSelectionBounds}
+                                setEditingTextId={setEditingTextId}
+                                setTool={setTool}
+                                editingTextId={editingTextId}
+                            />
+                        </g>
 
                         {strokeSelectionBounds && selectedStrokeIds.length > 0 && (
                             <g transform={`translate(${tempStrokeTransform.x + strokeSelectionBounds.cx}, ${tempStrokeTransform.y + strokeSelectionBounds.cy}) rotate(${tempStrokeTransform.rotation}) scale(${tempStrokeTransform.scale}) translate(${-strokeSelectionBounds.cx}, ${-strokeSelectionBounds.cy})`}>
@@ -1843,7 +1908,10 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                             </g>
                         )}
 
-                        {renderCurrentStroke()}
+                        {/* Active drawing stroke isolated in a GPU compositor layer */}
+                        <g style={{ willChange: 'transform' }}>
+                            {renderCurrentStroke()}
+                        </g>
                         {lassoPoints && isTeacher && <path d={getSvgPathFromStroke(getStroke(lassoPoints, { size: 2 / camera.scale, thinning: 0, smoothing: 0, streamline: 0, simulatePressure: false }))} fill="rgba(59, 130, 246, 0.2)" stroke="var(--color-primary)" strokeWidth={2 / camera.scale} strokeDasharray="4 4" />}
                     </g>
                 </svg>
@@ -1888,8 +1956,34 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                         </div>
                     )}
                     {!isTeacher && !isFollowingTeacher && boards.length > 0 && (
-                        <div className="bg-white/80 dark:bg-black/80 backdrop-blur-xl rounded-xl p-1 shadow-xl border border-white/20 pointer-events-auto animate-in fade-in">
-                            <select value={activeBoardId} onChange={(e) => setActiveBoardId(e.target.value)} className="bg-transparent text-gray-800 dark:text-gray-200 text-xs font-bold px-2 py-2 outline-none cursor-pointer max-w-[120px] sm:max-w-[200px]">{boards.map(b => <option key={b.id} value={b.id} className="text-black dark:text-white bg-white dark:bg-gray-800">{b.name}</option>)}</select>
+                        <div className="relative pointer-events-auto select-none">
+                            <button
+                                onClick={() => setShowBoardDropdown(!showBoardDropdown)}
+                                className="glass-panel px-3 py-2 text-xs font-bold rounded-xl flex items-center gap-1.5 backdrop-blur-xl bg-white/70 dark:bg-black/70 text-gray-800 dark:text-gray-200 border border-white/20 hover:bg-white/90 dark:hover:bg-gray-800 transition-all shadow-md"
+                            >
+                                <span>{boards.find(b => b.id === activeBoardId)?.name || 'Seleccionar Pizarra'}</span>
+                                <IconChevronDown className="w-3.5 h-3.5 opacity-60" />
+                            </button>
+                            {showBoardDropdown && (
+                                <div className="glass-panel absolute top-full left-0 mt-1.5 rounded-xl shadow-xl w-48 z-[150] p-1 flex flex-col gap-0.5 backdrop-blur-xl bg-white/80 dark:bg-black/80 border border-white/10 dark:border-gray-800/40 animate-in slide-in-from-top-2 duration-150">
+                                    {boards.map(b => (
+                                        <button
+                                            key={b.id}
+                                            onClick={() => {
+                                                setActiveBoardId(b.id);
+                                                setShowBoardDropdown(false);
+                                            }}
+                                            className={`w-full text-left px-3 py-2 text-xs font-bold rounded-lg truncate transition-colors ${
+                                                b.id === activeBoardId
+                                                    ? 'bg-primary text-white'
+                                                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                                            }`}
+                                        >
+                                            {b.name}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     )}
                     <div className="flex bg-white/80 dark:bg-black/80 backdrop-blur-xl rounded-2xl p-1.5 shadow-2xl border border-white/20 items-stretch">

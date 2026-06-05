@@ -33,7 +33,6 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({ file, onClos
 
     useEffect(() => {
         const img = new Image();
-        img.crossOrigin = "Anonymous"; 
         const url = URL.createObjectURL(file);
         
         img.onload = () => {
@@ -46,6 +45,8 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({ file, onClos
         img.src = url;
         
         return () => {
+             img.onload = null;
+             img.onerror = null;
              URL.revokeObjectURL(url);
         };
     }, [file, onClose]);

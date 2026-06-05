@@ -32,7 +32,12 @@ const arePropsEqual = (prevProps: { stroke: WhiteboardStroke }, nextProps: { str
         pOptions?.sharpCorners === nOptions?.sharpCorners &&
         pOptions?.roughness === nOptions?.roughness && // Check roughness
         pOptions?.strokeWidthJitter === nOptions?.strokeWidthJitter && // Check width jitter
-        pOptions?.fillRoughness === nOptions?.fillRoughness // Check fill roughness
+        pOptions?.fillRoughness === nOptions?.fillRoughness && // Check fill roughness
+        pOptions?.simulatePressure === nOptions?.simulatePressure &&
+        pOptions?.useStylusPressure === nOptions?.useStylusPressure &&
+        pOptions?.useVelocityDynamics === nOptions?.useVelocityDynamics &&
+        pOptions?.isNaturalMarker === nOptions?.isNaturalMarker &&
+        pOptions?.markerTextureScale === nOptions?.markerTextureScale // Check fill roughness
     );
 };
 
@@ -91,9 +96,18 @@ export const StaticStroke = React.memo(({ stroke }: { stroke: WhiteboardStroke &
         }
 
         // Ink Stroke (Variable Thickness) - Perfect Freehand
+        let finalSimulatePressure = options?.simulatePressure ?? true;
+        if (options?.useStylusPressure !== false) {
+            const uniquePressures = new Set(stroke.points.map(p => p.pressure).filter(p => p !== undefined && p !== 0.5 && p !== 1.0));
+            if (uniquePressures.size > 1) {
+                finalSimulatePressure = false;
+            }
+        }
+
         const strokeOptions = {
             size: stroke.size,
             ...stroke.options,
+            simulatePressure: finalSimulatePressure
         };
         const outlinePoints = getStroke(stroke.points, strokeOptions);
         return getSvgPathFromStroke(outlinePoints);

@@ -23,6 +23,10 @@ export interface ExtendedStrokeOptions extends StrokeOptions {
     // Marcador Natural
     isNaturalMarker?: boolean; // Convierte el lápiz en un marcador translúcido con textura
     markerTextureScale?: number; // Controla el baseFrequency de feTurbulence
+
+    // Control de dinámica de trazo
+    useStylusPressure?: boolean; // Si debe utilizar la presión del Stylus/S-Pen
+    useVelocityDynamics?: boolean; // Si debe calcular dinámica de presión por velocidad
 }
 
 export interface ToolPreset {

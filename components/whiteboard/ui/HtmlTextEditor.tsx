@@ -250,7 +250,7 @@ export const HtmlTextEditor: React.FC<HtmlTextEditorProps> = ({
                 <div className={`${portalContainer.id === 'whiteboard-canvas-container' ? 'absolute top-4' : 'fixed top-24'} left-1/2 -translate-x-1/2 z-[9999] flex flex-col gap-2 pointer-events-auto`}>
 
                     {/* Botones de Guardar/Cancelar */}
-                    <div className="flex gap-2 bg-white/90 dark:bg-dark-card/90 backdrop-blur-md p-2 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 w-fit mx-auto animate-in slide-in-from-top-5">
+                    <div className="glass-panel flex gap-2 p-2 rounded-xl shadow-2xl w-fit mx-auto animate-in slide-in-from-top-5">
                         <button
                             onClick={handleSave}
                             className="flex items-center gap-1 px-3 py-1.5 bg-green-500 text-white font-bold text-sm rounded-lg hover:bg-green-600 transition-colors shadow-sm"
@@ -267,7 +267,7 @@ export const HtmlTextEditor: React.FC<HtmlTextEditorProps> = ({
                         </button>
                     </div>
 
-                    <div className="bg-white/90 dark:bg-dark-card/90 backdrop-blur-md rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 animate-in slide-in-from-top-2">
+                    <div className="glass-panel rounded-2xl shadow-2xl animate-in slide-in-from-top-2">
                         <TextToolbar
                             text={localText}
                             layers={layers}

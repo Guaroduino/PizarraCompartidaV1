@@ -19,7 +19,7 @@ export const LayerManager: React.FC<LayerManagerProps> = ({
     layers, activeLayerId, onSetActiveLayer, onAddLayer, onDeleteLayer, onToggleVisibility, onMoveLayer, onUpdateLayer, onClose
 }) => {
     return (
-        <div className="absolute top-24 right-4 w-72 bg-white/95 dark:bg-dark-card backdrop-blur-xl border border-gray-200 dark:border-gray-700 rounded-2xl shadow-2xl p-4 z-50 animate-in slide-in-from-right-4 pointer-events-auto">
+        <div className="glass-panel absolute top-24 right-4 w-72 rounded-2xl shadow-2xl p-4 z-50 animate-in slide-in-from-right-4 pointer-events-auto">
             <div className="flex justify-between items-center mb-4 border-b pb-2">
                 <h3 className="font-black text-[10px] uppercase tracking-widest text-gray-400">Capas</h3>
                 <button onClick={onAddLayer} className="p-1 text-primary hover:bg-primary/10 rounded-lg"><IconPlus className="w-5 h-5" /></button>

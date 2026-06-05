@@ -87,6 +87,7 @@ export interface WhiteboardStroke {
   deleted?: boolean;
   options?: StrokeOptions;
   groupId?: string;
+  cachedPath?: string;
 }
 
 export interface WhiteboardImage {

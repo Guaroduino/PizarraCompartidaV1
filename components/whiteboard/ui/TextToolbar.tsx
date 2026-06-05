@@ -1,4 +1,3 @@
-
 // File: src/components/whiteboard/ui/TextToolbar.tsx
 import React, { useState } from 'react';
 import type { ExtendedWhiteboardText } from '../../../types/whiteboardTypes';
@@ -6,8 +5,8 @@ import type { WhiteboardLayer } from '../../../types';
 import { 
     IconAlignLeft, IconAlignCenter, IconAlignRight, 
     IconAlignTop, IconAlignMiddle, IconAlignBottom,
-    IconRemoveBackgroundColor, IconLayers, IconClipboardCopy, IconTrash, 
-    IconBorder, IconMinus, IconPlus
+    IconLayers, IconClipboardCopy, IconTrash, 
+    IconMinus, IconPlus
 } from '../../Icons';
 import { ColorPickerButton } from '../../ColorPicker';
 
@@ -27,13 +26,6 @@ export const TextToolbar: React.FC<TextToolbarProps> = ({
     onCopy, onCut, onDelete, onMoveToLayer, isOverlay = false 
 }) => {
     const [showLayerSelector, setShowLayerSelector] = useState(false);
-
-    const toggleBorderStyle = () => {
-        const styles: ('solid' | 'dashed' | 'dotted')[] = ['solid', 'dashed', 'dotted'];
-        const currentIdx = styles.indexOf(text.borderStyle || 'solid');
-        const nextStyle = styles[(currentIdx + 1) % styles.length];
-        onUpdate({ borderStyle: nextStyle });
-    };
 
     const handleExecCommand = (command: string) => {
         document.execCommand(command, false);
@@ -61,7 +53,7 @@ export const TextToolbar: React.FC<TextToolbarProps> = ({
 
     return (
         <div
-            className={`flex flex-col items-start bg-white dark:bg-dark-card p-2 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 z-[120] ${isOverlay ? 'mb-2' : 'absolute -top-36 left-0'}`}
+            className={`glass-panel flex flex-col items-start p-2.5 rounded-2xl shadow-2xl z-[120] ${isOverlay ? 'mb-2' : 'absolute -top-36 left-0'}`}
             onPointerDown={e => {
                 e.stopPropagation(); 
                 // Permitir foco en inputs dentro de la toolbar, prevenir blur en el editor de texto
@@ -171,114 +163,144 @@ export const TextToolbar: React.FC<TextToolbarProps> = ({
 
             <div className="h-px w-full bg-gray-200 dark:bg-gray-700 mb-2"></div>
 
-            {/* Row 2: Colors, Alignment & Actions */}
-            <div className="flex items-center gap-3">
-                
-                {/* Colors */}
-                <div className="flex items-center gap-2">
-                    {text.textMode !== 'code' && (
-                        <div className="flex flex-col items-center">
-                            <ColorPickerButton 
-                                color={text.color || '#000000'}
-                                onChange={(c) => onUpdate({ color: c })}
-                                className="w-6 h-6 rounded-full border border-gray-300"
-                                position="bottom"
-                            />
+            {/* Colors & Borders Panel */}
+            <div className="flex flex-wrap items-center gap-4 bg-gray-100/50 dark:bg-gray-855/50 p-2 rounded-xl w-full border border-gray-200/50 dark:border-gray-700/50 mb-2">
+                {/* Text Color */}
+                {text.textMode !== 'code' && (
+                    <div className="flex items-center gap-1.5" title="Color de Texto">
+                        <span className="text-[9px] font-black uppercase text-gray-400 dark:text-gray-500">Texto</span>
+                        <ColorPickerButton 
+                            color={text.color || '#000000'}
+                            onChange={(c) => onUpdate({ color: c })}
+                            className="w-6 h-6 rounded-full border border-gray-300 shadow-sm"
+                            position="bottom"
+                        />
+                    </div>
+                )}
+
+                {text.textMode !== 'code' && <div className="h-4 w-px bg-gray-250 dark:bg-gray-700"></div>}
+
+                {/* Background Color Toggle & Picker */}
+                <div className="flex items-center gap-1.5">
+                    <label className="flex items-center gap-1 cursor-pointer select-none">
+                        <input 
+                            type="checkbox"
+                            className="w-3.5 h-3.5 rounded text-primary focus:ring-primary border-gray-300 dark:border-gray-600 dark:bg-gray-800 cursor-pointer"
+                            checked={!!text.backgroundColor && text.backgroundColor !== 'transparent'}
+                            onChange={(e) => {
+                                const active = e.target.checked;
+                                onUpdate({ backgroundColor: active ? '#ffffff' : 'transparent' });
+                            }}
+                        />
+                        <span className="text-[9px] font-black uppercase text-gray-400 dark:text-gray-500">Fondo</span>
+                    </label>
+                    {text.backgroundColor && text.backgroundColor !== 'transparent' ? (
+                        <ColorPickerButton 
+                            color={text.backgroundColor}
+                            onChange={(c) => onUpdate({ backgroundColor: c })}
+                            className="w-6 h-6 rounded-md border border-gray-300 shadow-sm transition-transform hover:scale-105"
+                            position="bottom"
+                        />
+                    ) : (
+                        <div className="w-6 h-6 rounded-md border border-dashed border-gray-300 dark:border-gray-600 bg-transparent flex items-center justify-center opacity-40" title="Sin Fondo">
+                            <span className="text-[8px] text-gray-400 dark:text-gray-500 font-bold uppercase">Off</span>
                         </div>
                     )}
-                    <div className="flex flex-col items-center relative">
-                        <ColorPickerButton 
-                            color={text.backgroundColor && text.backgroundColor !== 'transparent' ? text.backgroundColor : '#ffffff'}
-                            onChange={(c) => onUpdate({ backgroundColor: c })}
-                            className="w-6 h-6 rounded-md border border-gray-300"
-                            position="bottom"
-                            opacity={text.backgroundColor === 'transparent' ? 0 : 1}
-                        />
-                        {text.backgroundColor === 'transparent' && <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-red-500 font-bold text-xs">\</div>}
-                    </div>
-                    <div className="flex flex-col items-center relative">
-                        <ColorPickerButton 
-                            color={text.borderColor && text.borderColor !== 'transparent' ? text.borderColor : '#000000'}
-                            onChange={(c) => onUpdate({ borderColor: c })}
-                            className="w-6 h-6 rounded-md border-2 border-gray-400"
-                            position="bottom"
-                            opacity={text.borderColor === 'transparent' ? 0 : 1}
-                        />
-                         {text.borderColor === 'transparent' && <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-red-500 font-bold text-xs">\</div>}
-                    </div>
                 </div>
 
-                <div className="h-6 w-px bg-gray-200 dark:bg-gray-700"></div>
+                <div className="h-4 w-px bg-gray-250 dark:bg-gray-700"></div>
 
-                {/* Border Style */}
-                <div className="flex gap-1">
-                    <button 
-                        onClick={toggleBorderStyle}
-                        className="w-6 h-6 hover:bg-gray-100 dark:hover:bg-gray-800 rounded flex items-center justify-center"
-                        title="Estilo de Borde"
-                    >
-                        <IconBorder className="w-4 h-4 text-gray-500"/>
-                    </button>
-                    <button 
-                        onClick={() => onUpdate({ borderColor: 'transparent' })} 
-                        className="w-6 h-6 hover:bg-gray-100 dark:hover:bg-gray-800 rounded flex items-center justify-center text-red-500" 
-                        title="Sin Borde"
-                    >
-                        <IconRemoveBackgroundColor className="w-4 h-4" />
-                    </button>
-                </div>
-
-                {text.textMode !== 'code' && (
-                    <>
-                        {/* Alignment Group (Horizontal + Vertical) */}
-                        <div className="flex flex-col gap-1">
-                            {/* Horizontal Alignment */}
-                            <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
-                                <button onClick={() => onUpdate({ textAlign: 'left' })} className={`p-1 rounded ${text.textAlign === 'left' ? 'bg-white dark:bg-gray-700 shadow-sm text-primary' : 'text-gray-400'}`}>
-                                    <IconAlignLeft className="w-3 h-3"/>
-                                </button>
-                                <button onClick={() => onUpdate({ textAlign: 'center' })} className={`p-1 rounded ${text.textAlign === 'center' ? 'bg-white dark:bg-gray-700 shadow-sm text-primary' : 'text-gray-400'}`}>
-                                    <IconAlignCenter className="w-3 h-3"/>
-                                </button>
-                                <button onClick={() => onUpdate({ textAlign: 'right' })} className={`p-1 rounded ${text.textAlign === 'right' ? 'bg-white dark:bg-gray-700 shadow-sm text-primary' : 'text-gray-400'}`}>
-                                    <IconAlignRight className="w-3 h-3"/>
-                                </button>
-                            </div>
-                            {/* Vertical Alignment */}
-                            <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
-                                <button onClick={() => onUpdate({ verticalAlign: 'top' })} className={`p-1 rounded ${(!text.verticalAlign || text.verticalAlign === 'top') ? 'bg-white dark:bg-gray-700 shadow-sm text-primary' : 'text-gray-400'}`} title="Arriba">
-                                    <IconAlignTop className="w-3 h-3"/>
-                                </button>
-                                <button onClick={() => onUpdate({ verticalAlign: 'middle' })} className={`p-1 rounded ${text.verticalAlign === 'middle' ? 'bg-white dark:bg-gray-700 shadow-sm text-primary' : 'text-gray-400'}`} title="Centro">
-                                    <IconAlignMiddle className="w-3 h-3"/>
-                                </button>
-                                <button onClick={() => onUpdate({ verticalAlign: 'bottom' })} className={`p-1 rounded ${text.verticalAlign === 'bottom' ? 'bg-white dark:bg-gray-700 shadow-sm text-primary' : 'text-gray-400'}`} title="Abajo">
-                                    <IconAlignBottom className="w-3 h-3"/>
-                                </button>
-                            </div>
+                {/* Border Toggle, Picker & Style Selector */}
+                <div className="flex items-center gap-1.5">
+                    <label className="flex items-center gap-1 cursor-pointer select-none">
+                        <input 
+                            type="checkbox"
+                            className="w-3.5 h-3.5 rounded text-primary focus:ring-primary border-gray-300 dark:border-gray-600 dark:bg-gray-800 cursor-pointer"
+                            checked={!!text.borderColor && text.borderColor !== 'transparent'}
+                            onChange={(e) => {
+                                const active = e.target.checked;
+                                onUpdate({ borderColor: active ? '#000000' : 'transparent' });
+                            }}
+                        />
+                        <span className="text-[9px] font-black uppercase text-gray-400 dark:text-gray-500">Borde</span>
+                    </label>
+                    {text.borderColor && text.borderColor !== 'transparent' ? (
+                        <>
+                            <ColorPickerButton 
+                                color={text.borderColor}
+                                onChange={(c) => onUpdate({ borderColor: c })}
+                                className="w-6 h-6 rounded-md border border-gray-300 shadow-sm transition-transform hover:scale-105"
+                                position="bottom"
+                            />
+                            <select
+                                value={text.borderStyle || 'solid'}
+                                onChange={(e) => onUpdate({ borderStyle: e.target.value as any })}
+                                className="bg-white dark:bg-gray-850 text-[9px] font-black uppercase text-gray-600 dark:text-gray-300 border border-gray-250 dark:border-gray-750 rounded px-1.5 py-0.5 focus:outline-none cursor-pointer"
+                                title="Estilo del Borde"
+                            >
+                                <option value="solid">Continuo</option>
+                                <option value="dashed">Guiones</option>
+                                <option value="dotted">Puntos</option>
+                            </select>
+                        </>
+                    ) : (
+                        <div className="w-6 h-6 rounded-md border border-dashed border-gray-300 dark:border-gray-600 bg-transparent flex items-center justify-center opacity-40" title="Sin Borde">
+                            <span className="text-[8px] text-gray-400 dark:text-gray-500 font-bold uppercase">Off</span>
                         </div>
+                    )}
+                </div>
+            </div>
 
-                        <div className="h-6 w-px bg-gray-200 dark:bg-gray-700"></div>
-                    </>
-                )}
+            <div className="h-px w-full bg-gray-200 dark:bg-gray-700 mb-2"></div>
+
+            {/* Row 3: Alignment & Management Actions */}
+            <div className="flex items-center gap-3 w-full justify-between">
+                {text.textMode !== 'code' ? (
+                    <div className="flex gap-2">
+                        {/* Horizontal Alignment */}
+                        <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
+                            <button onClick={() => onUpdate({ textAlign: 'left' })} className={`p-1 rounded ${text.textAlign === 'left' ? 'bg-white dark:bg-gray-700 shadow-sm text-primary' : 'text-gray-400'}`} title="Alinear izquierda">
+                                <IconAlignLeft className="w-3.5 h-3.5"/>
+                            </button>
+                            <button onClick={() => onUpdate({ textAlign: 'center' })} className={`p-1 rounded ${text.textAlign === 'center' ? 'bg-white dark:bg-gray-700 shadow-sm text-primary' : 'text-gray-400'}`} title="Centrar horizontal">
+                                <IconAlignCenter className="w-3.5 h-3.5"/>
+                            </button>
+                            <button onClick={() => onUpdate({ textAlign: 'right' })} className={`p-1 rounded ${text.textAlign === 'right' ? 'bg-white dark:bg-gray-700 shadow-sm text-primary' : 'text-gray-400'}`} title="Alinear derecha">
+                                <IconAlignRight className="w-3.5 h-3.5"/>
+                            </button>
+                        </div>
+                        {/* Vertical Alignment */}
+                        <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
+                            <button onClick={() => onUpdate({ verticalAlign: 'top' })} className={`p-1 rounded ${(!text.verticalAlign || text.verticalAlign === 'top') ? 'bg-white dark:bg-gray-700 shadow-sm text-primary' : 'text-gray-400'}`} title="Alinear arriba">
+                                <IconAlignTop className="w-3.5 h-3.5"/>
+                            </button>
+                            <button onClick={() => onUpdate({ verticalAlign: 'middle' })} className={`p-1 rounded ${text.verticalAlign === 'middle' ? 'bg-white dark:bg-gray-700 shadow-sm text-primary' : 'text-gray-400'}`} title="Centrar vertical">
+                                <IconAlignMiddle className="w-3.5 h-3.5"/>
+                            </button>
+                            <button onClick={() => onUpdate({ verticalAlign: 'bottom' })} className={`p-1 rounded ${text.verticalAlign === 'bottom' ? 'bg-white dark:bg-gray-700 shadow-sm text-primary' : 'text-gray-400'}`} title="Alinear abajo">
+                                <IconAlignBottom className="w-3.5 h-3.5"/>
+                            </button>
+                        </div>
+                    </div>
+                ) : <div />}
 
                 {/* Management Actions */}
                 <div className="flex items-center gap-1">
                     <div className="relative">
                         <button 
                             onClick={() => setShowLayerSelector(!showLayerSelector)} 
-                            className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded text-gray-500 hover:text-primary" 
+                            className="p-1.5 hover:bg-gray-150 dark:hover:bg-gray-800 rounded-lg text-gray-500 hover:text-primary transition-colors" 
                             title="Mover a Capa"
                         >
                             <IconLayers className="w-4 h-4"/>
                         </button>
                         {showLayerSelector && (
-                            <div className="absolute top-full left-0 mt-2 bg-white dark:bg-dark-card border dark:border-gray-700 rounded-xl shadow-xl w-40 z-50 p-1 overflow-hidden">
+                            <div className="glass-panel absolute bottom-full left-0 mb-2 rounded-xl shadow-xl w-40 z-50 p-1 overflow-hidden">
                                 {layers.map(l => (
                                     <button 
                                         key={l.id} 
                                         onClick={() => { onMoveToLayer(l.id); setShowLayerSelector(false); }}
-                                        className="w-full text-left px-3 py-2 text-xs font-bold hover:bg-gray-100 dark:hover:bg-gray-800 rounded truncate block text-gray-700 dark:text-gray-300"
+                                        className="w-full text-left px-3 py-2 text-xs font-bold hover:bg-gray-100 dark:hover:bg-gray-855 rounded-lg truncate block text-gray-700 dark:text-gray-300 transition-colors"
                                     >
                                         {l.name}
                                     </button>
@@ -286,20 +308,17 @@ export const TextToolbar: React.FC<TextToolbarProps> = ({
                             </div>
                         )}
                     </div>
-                    {/* Toggle: permitir copia (visible para profesores que usan el editor) */}
+                    
                     <button
                         onClick={() => onUpdate({ allowCopy: !(text.allowCopy ?? true) })}
-                        className={`p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded ${text.allowCopy === false ? 'text-gray-400' : 'text-green-500'}`}
+                        className={`p-1.5 hover:bg-gray-150 dark:hover:bg-gray-800 rounded-lg transition-colors ${text.allowCopy === false ? 'text-gray-400' : 'text-green-500'}`}
                         title={text.allowCopy === false ? 'Copiar deshabilitado' : 'Permitir copiar'}
                     >
                         <IconClipboardCopy className="w-4 h-4"/>
                     </button>
 
-                    <button onClick={onCopy} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded text-blue-500" title="Copiar"><IconClipboardCopy className="w-4 h-4"/></button>
-                    <button onClick={onDelete} className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/30 rounded text-red-500" title="Eliminar"><IconTrash className="w-4 h-4"/></button>
-                    
-                    {/* Clear Format Helpers */}
-                    <button onClick={() => onUpdate({ backgroundColor: 'transparent' })} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded text-gray-400" title="Sin Fondo"><IconRemoveBackgroundColor className="w-4 h-4"/></button>
+                    <button onClick={onCopy} className="p-1.5 hover:bg-gray-150 dark:hover:bg-gray-800 rounded-lg text-blue-500 transition-colors" title="Copiar"><IconClipboardCopy className="w-4 h-4"/></button>
+                    <button onClick={onDelete} className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg text-red-500 transition-colors" title="Eliminar"><IconTrash className="w-4 h-4"/></button>
                 </div>
             </div>
         </div>

@@ -27,7 +27,10 @@ export const useWhiteboardHistory = (setIsSyncing: (val: boolean) => void) => {
         try {
             if (action.type === 'create') await deleteDoc(doc(db, coll, action.targetId));
             else if (action.type === 'delete') await setDoc(doc(db, coll, action.targetId), action.data);
-            else if (action.type === 'update') await updateDoc(doc(db, coll, action.targetId), action.prevData);
+            else if (action.type === 'update') {
+                const { id, ...cleanPrevData } = action.prevData;
+                await updateDoc(doc(db, coll, action.targetId), cleanPrevData);
+            }
             
             setRedoStack(prev => [action, ...prev]);
             setHistoryIndex(historyIndex - 1);
@@ -44,7 +47,10 @@ export const useWhiteboardHistory = (setIsSyncing: (val: boolean) => void) => {
         try {
             if (action.type === 'create') await setDoc(doc(db, coll, action.targetId), action.data);
             else if (action.type === 'delete') await deleteDoc(doc(db, coll, action.targetId));
-            else if (action.type === 'update') await updateDoc(doc(db, coll, action.targetId), action.newData);
+            else if (action.type === 'update') {
+                const { id, ...cleanNewData } = action.newData;
+                await updateDoc(doc(db, coll, action.targetId), cleanNewData);
+            }
             
             setRedoStack(redoStack.slice(1));
             setHistoryIndex(historyIndex + 1);

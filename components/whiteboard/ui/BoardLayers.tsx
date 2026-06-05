@@ -55,11 +55,21 @@ export const BoardLayers = React.memo((props: BoardLayersProps) => {
         return sortedLayers.map(layer => {
             if (!layer.visible) return null;
 
-            const staticStrokes = activeStrokes.filter(s => !selectedStrokeIds.includes(s.id) && (s.layerId === layer.id || (!s.layerId && layer.order === 0)));
-            const transformingStrokes = activeStrokes.filter(s => selectedStrokeIds.includes(s.id) && (s.layerId === layer.id || (!s.layerId && layer.order === 0)));
+            const staticStrokes = activeStrokes
+                .filter(s => !selectedStrokeIds.includes(s.id) && (s.layerId === layer.id || (!s.layerId && layer.order === 0)))
+                .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
 
-            const images = localImages.filter(i => i.layerId === layer.id || (!i.layerId && layer.order === 0));
-            const texts = localTexts.filter(t => t.layerId === layer.id || (!t.layerId && layer.order === 0));
+            const transformingStrokes = activeStrokes
+                .filter(s => selectedStrokeIds.includes(s.id) && (s.layerId === layer.id || (!s.layerId && layer.order === 0)))
+                .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+
+            const images = localImages
+                .filter(i => i.layerId === layer.id || (!i.layerId && layer.order === 0))
+                .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+
+            const texts = localTexts
+                .filter(t => t.layerId === layer.id || (!t.layerId && layer.order === 0))
+                .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
 
             return {
                 layer,
