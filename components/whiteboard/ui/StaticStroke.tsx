@@ -145,7 +145,7 @@ export const StaticStroke = React.memo(({ stroke }: { stroke: WhiteboardStroke &
         : undefined;
 
     return (
-        <g opacity={stroke.opacity ?? 1} style={isMarker ? { mixBlendMode: 'multiply', filter: `url(#marker-texture-${currentMarkerScale})` } : undefined}>
+        <g opacity={stroke.opacity ?? 1} style={isMarker ? { mixBlendMode: 'multiply', filter: `url(#marker-texture-${currentMarkerScale}), url(#marker-texture)` } : undefined}>
             {/* Fill Layer */}
             {isFilled && (
                 <path

@@ -545,6 +545,21 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
         });
     }, [texts, pendingTexts, visibleLayerIds, activeKeyframeId, currentPageKeyframes, isTeacher]);
 
+    const markerScales = useMemo(() => {
+        const scales = new Set<number>([0.1]);
+        if (strokeOpts?.markerTextureScale) {
+            scales.add(Number(strokeOpts.markerTextureScale));
+        }
+        activeStrokes.forEach(s => {
+            const opts = s.options as ExtendedStrokeOptions | undefined;
+            if (s.type === 'marker' || opts?.isNaturalMarker) {
+                const scale = opts?.markerTextureScale !== undefined ? Number(opts.markerTextureScale) : 0.1;
+                scales.add(scale);
+            }
+        });
+        return Array.from(scales);
+    }, [activeStrokes, strokeOpts?.markerTextureScale]);
+
     const [localImages, setLocalImages] = useState<any[]>(activeImages);
     const [localTexts, setLocalTexts] = useState<any[]>(activeTexts);
 
@@ -978,8 +993,9 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
             return;
         }
 
-        // Simplificar puntos para descartar micro-jitter y reducir payload en red hasta 70%
-        const simplified = isSharpTool ? points : simplifyPoints(points, 1.8);
+        // Simplificar puntos para descartar micro-jitter salvo si tiene textura o rugosidad (como lápiz)
+        const hasTextureOrJitter = !!(finalOptions?.roughness || finalOptions?.strokeWidthJitter);
+        const simplified = (isSharpTool || hasTextureOrJitter) ? points : simplifyPoints(points, 1.8);
         const roundedPath = simplified.map(p => ({
             x: Math.round(p.x * 100) / 100,
             y: Math.round(p.y * 100) / 100,
@@ -1987,9 +2003,17 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                             </feComponentTransfer>
                             <feComposite operator="in" in="SourceGraphic" in2="adjustedNoise" />
                         </filter>
+                        <filter id="marker-texture-0.1" x="-20%" y="-20%" width="140%" height="140%">
+                            <feTurbulence type="fractalNoise" baseFrequency="0.1" numOctaves="3" result="noise" />
+                            <feColorMatrix type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  1 0 0 0 0" in="noise" result="alphaNoise" />
+                            <feComponentTransfer in="alphaNoise" result="adjustedNoise">
+                                <feFuncA type="linear" slope="1.5" intercept="-0.1" />
+                            </feComponentTransfer>
+                            <feComposite operator="in" in="SourceGraphic" in2="adjustedNoise" />
+                        </filter>
 
                         {/* Dynamic marker-texture filters based on used scales */}
-                        {Array.from(new Set(strokes.filter(s => s.type === 'marker').map(s => (s.options as ExtendedStrokeOptions)?.markerTextureScale || 0.1))).map(scale => (
+                        {markerScales.map(scale => (
                             <filter key={`marker-texture-${scale}`} id={`marker-texture-${scale}`} x="-20%" y="-20%" width="140%" height="140%">
                                 <feTurbulence type="fractalNoise" baseFrequency={scale} numOctaves="3" result="noise" />
                                 <feColorMatrix type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  1 0 0 0 0" in="noise" result="alphaNoise" />
