@@ -53,6 +53,12 @@ export const useWhiteboardGestures = ({
     const [currentStroke, setCurrentStroke] = useState<Point[] | null>(null);
     const [isInteracting, setIsInteracting] = useState(false);
 
+    const currentStrokePointsRef = useRef<Point[]>([]);
+    const latestImagesRef = useRef<any[]>(activeImages);
+    const latestTextsRef = useRef<any[]>(activeTexts);
+    useEffect(() => { latestImagesRef.current = activeImages; }, [activeImages]);
+    useEffect(() => { latestTextsRef.current = activeTexts; }, [activeTexts]);
+
     const spacePressed = useRef(false);
     const longPressTimeout = useRef<any>(null);
     const startPointerPos = useRef<{ x: number, y: number } | null>(null);
@@ -452,12 +458,14 @@ export const useWhiteboardGestures = ({
             lastDrawPoint.current = { x, y, time: Date.now() };
             if (tool === 'eraser' && eraserMode !== 'freehand') {
                 shapeStartPoint.current = { x, y, pressure: 0.5 };
-                setCurrentStroke([{ x, y, pressure: 0.5 }]);
+                currentStrokePointsRef.current = [{ x, y, pressure: 0.5 }];
+                setCurrentStroke(currentStrokePointsRef.current);
             } else {
                 const isStylusInput = e.pointerType === 'pen' || (e.pressure > 0 && e.pressure !== 0.5 && e.pressure !== 1);
                 const inputPressure = isStylusInput ? e.pressure : 0.5;
                 const mixedPressure = inputPressure * (strokeOpts.pressureWeight ?? 1);
-                setCurrentStroke([{ x, y, pressure: mixedPressure }]);
+                currentStrokePointsRef.current = [{ x, y, pressure: mixedPressure }];
+                setCurrentStroke(currentStrokePointsRef.current);
             }
         }
     };
@@ -636,23 +644,31 @@ export const useWhiteboardGestures = ({
                 const dx = movementX / camera.scale;
                 const dy = movementY / camera.scale;
                 if (selectedId) {
-                    const targetType = activeImages.find(i => i.id === selectedId) ? 'image' : 'text';
+                    const targetType = (latestImagesRef.current.find(i => i.id === selectedId) || activeImages.find(i => i.id === selectedId)) ? 'image' : 'text';
                     if (targetType === 'image') {
-                        setImages(prev => prev.map(i => {
-                            if (i.id !== selectedId) return i;
-                            if (transformMode === 'drag') return { ...i, x: i.x + dx, y: i.y + dy };
-                            if (transformMode === 'resize') { const newW = Math.max(20, x - i.x); return { ...i, width: newW, height: newW * (i.height / i.width) }; }
-                            if (transformMode === 'rotate') return { ...i, rotation: Math.atan2(y - (i.y + i.height / 2), x - (i.x + i.width / 2)) * (180 / Math.PI) + 90 };
-                            return i;
-                        }));
+                        setImages(prev => {
+                            const updated = prev.map(i => {
+                                if (i.id !== selectedId) return i;
+                                if (transformMode === 'drag') return { ...i, x: i.x + dx, y: i.y + dy };
+                                if (transformMode === 'resize') { const newW = Math.max(20, x - i.x); return { ...i, width: newW, height: newW * (i.height / i.width) }; }
+                                if (transformMode === 'rotate') return { ...i, rotation: Math.atan2(y - (i.y + i.height / 2), x - (i.x + i.width / 2)) * (180 / Math.PI) + 90 };
+                                return i;
+                            });
+                            latestImagesRef.current = updated;
+                            return updated;
+                        });
                     } else {
-                        setTexts(prev => prev.map(t => {
-                            if (t.id !== selectedId) return t;
-                            if (transformMode === 'drag') return { ...t, x: t.x + dx, y: t.y + dy };
-                            if (transformMode === 'resize') return { ...t, width: Math.max(50, x - t.x), height: Math.max(50, y - t.y) };
-                            if (transformMode === 'rotate') return { ...t, rotation: Math.atan2(y - (t.y + t.height / 2), x - (t.x + t.width / 2)) * (180 / Math.PI) + 90 };
-                            return t;
-                        }));
+                        setTexts(prev => {
+                            const updated = prev.map(t => {
+                                if (t.id !== selectedId) return t;
+                                if (transformMode === 'drag') return { ...t, x: t.x + dx, y: t.y + dy };
+                                if (transformMode === 'resize') return { ...t, width: Math.max(50, x - t.x), height: Math.max(50, y - t.y) };
+                                if (transformMode === 'rotate') return { ...t, rotation: Math.atan2(y - (t.y + t.height / 2), x - (t.x + t.width / 2)) * (180 / Math.PI) + 90 };
+                                return t;
+                            });
+                            latestTextsRef.current = updated;
+                            return updated;
+                        });
                     }
                 }
                 return;
@@ -661,7 +677,9 @@ export const useWhiteboardGestures = ({
             if (isDrawing.current && (tool === 'pen' || tool === 'eraser')) {
                 if (tool === 'eraser' && eraserMode !== 'freehand') {
                     if (shapeStartPoint.current) {
-                        setCurrentStroke([shapeStartPoint.current, { x, y, pressure: 0.5 }]);
+                        const pts = [shapeStartPoint.current, { x, y, pressure: 0.5 }];
+                        currentStrokePointsRef.current = pts;
+                        setCurrentStroke(pts);
                     }
                 } else {
                     const pointsToAdd: Point[] = [];
@@ -674,20 +692,17 @@ export const useWhiteboardGestures = ({
                     const currentTime = Date.now();
                     lastDrawPoint.current = { x: clientX, y: clientY, time: currentTime };
 
-                    setCurrentStroke(prev => {
-                        const base = prev || [];
-                        const newPoints = [...base];
-                        pointsToAdd.forEach(p => {
-                            if (newPoints.length > 0) {
-                                const last = newPoints[newPoints.length - 1];
-                                const dist = Math.hypot(p.x - last.x, p.y - last.y);
-                                const throttle = strokeOpts.pointThrottle ?? 2;
-                                if (dist < throttle / camera.scale) return;
-                            }
-                            newPoints.push(p);
-                        });
-                        return newPoints;
+                    const currentPts = currentStrokePointsRef.current;
+                    pointsToAdd.forEach(p => {
+                        if (currentPts.length > 0) {
+                            const last = currentPts[currentPts.length - 1];
+                            const dist = Math.hypot(p.x - last.x, p.y - last.y);
+                            const throttle = strokeOpts.pointThrottle ?? 2;
+                            if (dist < throttle / camera.scale) return;
+                        }
+                        currentPts.push(p);
                     });
+                    setCurrentStroke([...currentPts]);
                 }
             }
         });
@@ -748,9 +763,9 @@ export const useWhiteboardGestures = ({
             }
 
             if (selectedId && transformMode) {
-                const item = activeImages.find(i => i.id === selectedId) || activeTexts.find(t => t.id === selectedId);
+                const item = latestImagesRef.current.find(i => i.id === selectedId) || latestTextsRef.current.find(t => t.id === selectedId);
                 if (item) {
-                    const type = activeImages.find(i => i.id === selectedId) ? 'image' : 'text';
+                    const type = latestImagesRef.current.find(i => i.id === selectedId) ? 'image' : 'text';
                     const prevSnapshot = initialTransformParams.current?.itemSnapshot;
                     updateItemInFirestore(selectedId, type, { x: item.x, y: item.y, width: item.width, height: item.height, rotation: item.rotation }, prevSnapshot);
                 }
@@ -762,8 +777,12 @@ export const useWhiteboardGestures = ({
                 setIsInteracting(false);
             }
 
-            if (isDrawing.current && currentStroke && (tool === 'pen' || tool === 'eraser')) {
-                onStrokeComplete([...currentStroke]);
+            if (isDrawing.current && (tool === 'pen' || tool === 'eraser')) {
+                const pts = currentStrokePointsRef.current;
+                if (pts.length > 0) {
+                    onStrokeComplete([...pts]);
+                }
+                currentStrokePointsRef.current = [];
                 setCurrentStroke(null);
                 isDrawing.current = false;
                 shapeStartPoint.current = null;
@@ -772,7 +791,11 @@ export const useWhiteboardGestures = ({
 
             const shapes = ['line', 'circle', 'square', 'rectangle', 'parallelogram'];
             if (shapes.includes(tool) && isDrawing.current) {
-                onStrokeComplete([...(currentStroke || [])]);
+                const pts = currentStroke || currentStrokePointsRef.current;
+                if (pts && pts.length > 0) {
+                    onStrokeComplete([...pts]);
+                }
+                currentStrokePointsRef.current = [];
                 setCurrentStroke(null);
                 isDrawing.current = false;
                 shapeStartPoint.current = null;
@@ -800,6 +823,7 @@ export const useWhiteboardGestures = ({
 
         if (activePointers.current.size === 0) {
             isDrawing.current = false;
+            currentStrokePointsRef.current = [];
             setCurrentStroke(null);
             setLassoPoints(null);
             polylinePoints.current = [];

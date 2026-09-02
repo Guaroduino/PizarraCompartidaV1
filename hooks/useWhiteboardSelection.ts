@@ -1,10 +1,11 @@
-﻿
+
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { doc, updateDoc, writeBatch, collection, deleteField, deleteDoc } from "firebase/firestore";
 import { db } from '../services/firebase';
 import type { WhiteboardStroke, WhiteboardImage, WhiteboardText } from '../types';
-import type { BoundingBox, TransformState, WhiteboardAction, ExtendedWhiteboardText } from '../types/whiteboardTypes';
-import { getBoundingBox } from '../utils/whiteboardUtils';
+import type { BoundingBox, TransformState, WhiteboardAction, ExtendedWhiteboardText, ExtendedStrokeOptions } from '../types/whiteboardTypes';
+import { getBoundingBox, getSvgPathFromStroke, getStrokePath } from '../utils/whiteboardUtils';
+import { getStroke } from 'perfect-freehand';
 
 interface UseWhiteboardSelectionProps {
     strokes: WhiteboardStroke[];
@@ -295,6 +296,7 @@ export const useWhiteboardSelection = ({
             try {
                 const selectedStrokes = activeStrokes.filter(s => selectedStrokeIds.includes(s.id));
                 const ops: any[] = [];
+                const historyActions: WhiteboardAction[] = [];
                 const { cx, cy } = strokeSelectionBounds; 
                 const { x: tx, y: ty, scale, rotation } = tempStrokeTransform;
                 
@@ -305,7 +307,7 @@ export const useWhiteboardSelection = ({
                 let newMinX = Infinity, newMinY = Infinity, newMaxX = -Infinity, newMaxY = -Infinity;
 
                 selectedStrokes.forEach(s => {
-                    const newSize = s.size * scale;
+                    const newSize = Math.max(0.5, Math.round((s.size * scale) * 100) / 100);
 
                     const newPoints = s.points.map(p => {
                         let x = p.x - cx;
@@ -324,11 +326,42 @@ export const useWhiteboardSelection = ({
 
                         return { ...p, x: finalX, y: finalY };
                     });
+
+                    // Recalculate cachedPath with new points and size
+                    let newCachedPath = '';
+                    const options = s.options as ExtendedStrokeOptions | undefined;
+                    const isStroked = options?.stroked ?? true;
+                    const isSharp = options?.sharpCorners;
+
+                    if (isStroked) {
+                        if (isSharp) {
+                            newCachedPath = getStrokePath(newPoints);
+                        } else {
+                            const strokeOptions = {
+                                size: newSize,
+                                ...options
+                            };
+                            const outlinePoints = getStroke(newPoints, strokeOptions);
+                            newCachedPath = getSvgPathFromStroke(outlinePoints);
+                        }
+                    }
                     
                     if (!s.id.startsWith('temp_')) {
+                        const updateData = { 
+                            points: newPoints, 
+                            size: newSize,
+                            cachedPath: newCachedPath
+                        };
                         ops.push({ 
                             ref: doc(db, 'whiteboardStrokes', s.id), 
-                            data: { points: newPoints, size: newSize } 
+                            data: updateData 
+                        });
+                        historyActions.push({
+                            type: 'update',
+                            targetType: 'stroke',
+                            targetId: s.id,
+                            prevData: { points: s.points, size: s.size, cachedPath: s.cachedPath || '' },
+                            newData: updateData
                         });
                     }
                 });
@@ -337,6 +370,10 @@ export const useWhiteboardSelection = ({
                     const chunkBatch = writeBatch(db);
                     ops.slice(i, i + 500).forEach(op => chunkBatch.update(op.ref, op.data));
                     await chunkBatch.commit();
+                }
+
+                if (historyActions.length > 0 && recordActionGroup) {
+                    recordActionGroup(historyActions);
                 }
 
                 setTempStrokeTransform({ x: 0, y: 0, scale: 1, rotation: 0 });

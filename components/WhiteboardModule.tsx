@@ -579,6 +579,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
         if (tempIds.length > 0) {
             setPendingStrokes(prev => prev.filter(s => !tempIds.includes(s.id)));
         }
+        setSyncingStrokes(prev => prev.filter(s => !idsToDelete.includes(s.id)));
 
         if (realIds.length > 0) {
             if (isSyncPaused) {
@@ -589,23 +590,27 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
             setIsSyncing(true);
             try {
                 const batch = writeBatch(db);
+                const actions: WhiteboardAction[] = [];
                 realIds.forEach(id => {
                     const stroke = activeStrokes.find(s => s.id === id);
                     if (stroke) {
                         const { id: _, ...data } = stroke;
                         batch.delete(doc(db, 'whiteboardStrokes', id));
-                        recordAction({ type: 'delete', targetType: 'stroke', targetId: id, data });
+                        actions.push({ type: 'delete', targetType: 'stroke', targetId: id, data });
                     }
                 });
                 await batch.commit();
+                if (actions.length > 0) {
+                    recordActionGroup(actions);
+                }
             } catch (e) {
                 console.error("Error deleting strokes:", e);
-                alert("Error al borrar trazos. Verifique su conexiÃ³n.");
+                alert("Error al borrar trazos. Verifique su conexión.");
             } finally {
                 setIsSyncing(false);
             }
         }
-    }, [isSyncPaused, recordAction, setIsSyncing, activeStrokes]);
+    }, [isSyncPaused, recordActionGroup, setIsSyncing, activeStrokes]);
 
     const handleDeleteElements = useCallback(async (imageIds: string[], textIds: string[]) => {
         if (imageIds.length === 0 && textIds.length === 0) return;
@@ -617,12 +622,13 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
         setIsSyncing(true);
         try {
             const batch = writeBatch(db);
+            const actions: WhiteboardAction[] = [];
             imageIds.forEach(id => {
                 const item = localImages.find(i => i.id === id);
                 if (item) {
                     const { id: _, ...data } = item;
                     batch.delete(doc(db, 'whiteboardImages', id));
-                    recordAction({ type: 'delete', targetType: 'image', targetId: id, data });
+                    actions.push({ type: 'delete', targetType: 'image', targetId: id, data });
                 }
             });
             textIds.forEach(id => {
@@ -630,17 +636,20 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                 if (item) {
                     const { id: _, ...data } = item;
                     batch.delete(doc(db, 'whiteboardTexts', id));
-                    recordAction({ type: 'delete', targetType: 'text', targetId: id, data });
+                    actions.push({ type: 'delete', targetType: 'text', targetId: id, data });
                 }
             });
             await batch.commit();
+            if (actions.length > 0) {
+                recordActionGroup(actions);
+            }
         } catch (e) {
             console.error("Error deleting elements:", e);
             alert("Error al borrar elementos de la pizarra.");
         } finally {
             setIsSyncing(false);
         }
-    }, [isSyncPaused, recordAction, setIsSyncing, localImages, localTexts]);
+    }, [isSyncPaused, recordActionGroup, setIsSyncing, localImages, localTexts]);
 
     const {
         selectedId, setSelectedId, setSelectedType, selectedType,
@@ -726,43 +735,171 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
         }
 
         if (tool === 'eraser') {
-            const strokesScope = activeStrokes.filter(s => !lockedLayerIds.has(s.layerId || '') && (eraserLayerScope === 'all' || s.layerId === activeLayerId));
-            const imagesScope = activeImages.filter(img => !lockedLayerIds.has(img.layerId || '') && (eraserLayerScope === 'all' || img.layerId === activeLayerId));
-            const textsScope = activeTexts.filter(txt => !lockedLayerIds.has(txt.layerId || '') && (eraserLayerScope === 'all' || txt.layerId === activeLayerId));
+            const isItemInEraserScope = (itemLayerId?: string) => {
+                if (eraserLayerScope === 'all') return true;
+                if (itemLayerId === activeLayerId) return true;
+                const activeLayer = layers.find(l => l.id === activeLayerId);
+                if ((!activeLayer || activeLayer.order === 0 || layers.length <= 1) && !itemLayerId) return true;
+                return false;
+            };
+
+            const strokesScope = activeStrokes.filter(s => !lockedLayerIds.has(s.layerId || '') && isItemInEraserScope(s.layerId));
+            const imagesScope = activeImages.filter(img => !lockedLayerIds.has(img.layerId || '') && isItemInEraserScope(img.layerId));
+            const textsScope = activeTexts.filter(txt => !lockedLayerIds.has(txt.layerId || '') && isItemInEraserScope(txt.layerId));
 
             const strokeIdsToDelete: string[] = [];
             const imageIdsToDelete: string[] = [];
             const textIdsToDelete: string[] = [];
+
+            // Geometric distance & intersection helpers
+            const distSq = (x1: number, y1: number, x2: number, y2: number) => (x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2);
+
+            const distToSegmentSq = (px: number, py: number, x1: number, y1: number, x2: number, y2: number) => {
+                const l2 = distSq(x1, y1, x2, y2);
+                if (l2 === 0) return distSq(px, py, x1, y1);
+                let t = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2;
+                t = Math.max(0, Math.min(1, t));
+                return distSq(px, py, x1 + t * (x2 - x1), y1 + t * (y2 - y1));
+            };
+
+            const segmentsIntersect = (a1x: number, a1y: number, a2x: number, a2y: number, b1x: number, b1y: number, b2x: number, b2y: number) => {
+                const ccw = (px: number, py: number, qx: number, qy: number, rx: number, ry: number) => (ry - py) * (qx - px) > (qy - py) * (rx - px);
+                return (
+                    ccw(a1x, a1y, b1x, b1y, b2x, b2y) !== ccw(a2x, a2y, b1x, b1y, b2x, b2y) &&
+                    ccw(a1x, a1y, a2x, a2y, b1x, b1y) !== ccw(a1x, a1y, a2x, a2y, b2x, b2y)
+                );
+            };
 
             const isPointInRect = (px: number, py: number, rx: number, ry: number, rw: number, rh: number) => {
                 return px >= rx && px <= rx + rw && py >= ry && py <= ry + rh;
             };
 
             const isPointInCircle = (px: number, py: number, cx: number, cy: number, radius: number) => {
-                return Math.sqrt(Math.pow(px - cx, 2) + Math.pow(py - cy, 2)) < radius;
+                return distSq(px, py, cx, cy) <= radius * radius;
             };
 
-            if (eraserMode === 'freehand') {
-                const radius = (size + 5) / camera.scale;
+            const segmentIntersectsRect = (x1: number, y1: number, x2: number, y2: number, rx: number, ry: number, rw: number, rh: number) => {
+                if (isPointInRect(x1, y1, rx, ry, rw, rh) || isPointInRect(x2, y2, rx, ry, rw, rh)) return true;
+                if (segmentsIntersect(x1, y1, x2, y2, rx, ry, rx + rw, ry)) return true;
+                if (segmentsIntersect(x1, y1, x2, y2, rx + rw, ry, rx + rw, ry + rh)) return true;
+                if (segmentsIntersect(x1, y1, x2, y2, rx, ry + rh, rx + rw, ry + rh)) return true;
+                if (segmentsIntersect(x1, y1, x2, y2, rx, ry, rx, ry + rh)) return true;
+                return false;
+            };
 
-                if (eraserTargets.strokes) {
+            const canEraseStrokes = eraserTargets.strokes !== false;
+            const canEraseImages = !!eraserTargets.images;
+            const canEraseTexts = !!eraserTargets.texts;
+
+            if (eraserMode === 'freehand' && points.length > 0) {
+                const baseEraserRadius = Math.max(8, (size + 10) / camera.scale);
+
+                if (canEraseStrokes) {
                     strokesScope.forEach(s => {
-                        const intersects = s.points.some(p => points.some(ep => Math.sqrt(Math.pow(p.x - ep.x, 2) + Math.pow(p.y - ep.y, 2)) < radius));
-                        if (intersects) strokeIdsToDelete.push(s.id);
+                        const hitRadius = baseEraserRadius + (s.size || 4) / 2;
+                        const hitRadiusSq = hitRadius * hitRadius;
+
+                        // Fast bounding box check
+                        let sMinX = Infinity, sMinY = Infinity, sMaxX = -Infinity, sMaxY = -Infinity;
+                        s.points.forEach(p => {
+                            if (p.x < sMinX) sMinX = p.x;
+                            if (p.y < sMinY) sMinY = p.y;
+                            if (p.x > sMaxX) sMaxX = p.x;
+                            if (p.y > sMaxY) sMaxY = p.y;
+                        });
+
+                        let eMinX = Infinity, eMinY = Infinity, eMaxX = -Infinity, eMaxY = -Infinity;
+                        points.forEach(p => {
+                            if (p.x < eMinX) eMinX = p.x;
+                            if (p.y < eMinY) eMinY = p.y;
+                            if (p.x > eMaxX) eMaxX = p.x;
+                            if (p.y > eMaxY) eMaxY = p.y;
+                        });
+
+                        if (eMaxX + hitRadius < sMinX || eMinX - hitRadius > sMaxX ||
+                            eMaxY + hitRadius < sMinY || eMinY - hitRadius > sMaxY) {
+                            return; // No overlap possible
+                        }
+
+                        let hit = false;
+                        if (points.length === 1) {
+                            const ep = points[0];
+                            if (s.points.length === 1) {
+                                hit = distSq(ep.x, ep.y, s.points[0].x, s.points[0].y) <= hitRadiusSq;
+                            } else {
+                                for (let i = 0; i < s.points.length - 1; i++) {
+                                    if (distToSegmentSq(ep.x, ep.y, s.points[i].x, s.points[i].y, s.points[i + 1].x, s.points[i + 1].y) <= hitRadiusSq) {
+                                        hit = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        } else {
+                            // Compare each eraser segment against stroke segments
+                            for (let j = 0; j < points.length - 1 && !hit; j++) {
+                                const ep1 = points[j];
+                                const ep2 = points[j + 1];
+
+                                if (s.points.length === 1) {
+                                    if (distToSegmentSq(s.points[0].x, s.points[0].y, ep1.x, ep1.y, ep2.x, ep2.y) <= hitRadiusSq) {
+                                        hit = true;
+                                        break;
+                                    }
+                                } else {
+                                    for (let i = 0; i < s.points.length - 1; i++) {
+                                        const sp1 = s.points[i];
+                                        const sp2 = s.points[i + 1];
+
+                                        if (segmentsIntersect(ep1.x, ep1.y, ep2.x, ep2.y, sp1.x, sp1.y, sp2.x, sp2.y) ||
+                                            distToSegmentSq(ep1.x, ep1.y, sp1.x, sp1.y, sp2.x, sp2.y) <= hitRadiusSq ||
+                                            distToSegmentSq(ep2.x, ep2.y, sp1.x, sp1.y, sp2.x, sp2.y) <= hitRadiusSq ||
+                                            distToSegmentSq(sp1.x, sp1.y, ep1.x, ep1.y, ep2.x, ep2.y) <= hitRadiusSq ||
+                                            distToSegmentSq(sp2.x, sp2.y, ep1.x, ep1.y, ep2.x, ep2.y) <= hitRadiusSq) {
+                                            hit = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if (hit) {
+                            strokeIdsToDelete.push(s.id);
+                        }
                     });
                 }
 
-                if (eraserTargets.images) {
+                if (canEraseImages) {
                     imagesScope.forEach(img => {
-                        const intersects = points.some(ep => isPointInRect(ep.x, ep.y, img.x, img.y, img.width, img.height));
-                        if (intersects) imageIdsToDelete.push(img.id);
+                        let hit = false;
+                        if (points.length === 1) {
+                            hit = isPointInRect(points[0].x, points[0].y, img.x, img.y, img.width, img.height);
+                        } else {
+                            for (let j = 0; j < points.length - 1; j++) {
+                                if (segmentIntersectsRect(points[j].x, points[j].y, points[j + 1].x, points[j + 1].y, img.x, img.y, img.width, img.height)) {
+                                    hit = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (hit) imageIdsToDelete.push(img.id);
                     });
                 }
 
-                if (eraserTargets.texts) {
+                if (canEraseTexts) {
                     textsScope.forEach(txt => {
-                        const intersects = points.some(ep => isPointInRect(ep.x, ep.y, txt.x, txt.y, txt.width, txt.height));
-                        if (intersects) textIdsToDelete.push(txt.id);
+                        let hit = false;
+                        if (points.length === 1) {
+                            hit = isPointInRect(points[0].x, points[0].y, txt.x, txt.y, txt.width, txt.height);
+                        } else {
+                            for (let j = 0; j < points.length - 1; j++) {
+                                if (segmentIntersectsRect(points[j].x, points[j].y, points[j + 1].x, points[j + 1].y, txt.x, txt.y, txt.width, txt.height)) {
+                                    hit = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (hit) textIdsToDelete.push(txt.id);
                     });
                 }
             } else if (eraserMode === 'rect' && points.length > 1) {
@@ -771,21 +908,22 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                 const width = Math.abs(points[0].x - points[points.length - 1].x);
                 const height = Math.abs(points[0].y - points[points.length - 1].y);
 
-                if (eraserTargets.strokes) {
+                if (canEraseStrokes) {
                     strokesScope.forEach(s => {
-                        const intersects = s.points.some(p => isPointInRect(p.x, p.y, minX, minY, width, height));
+                        const intersects = s.points.some(p => isPointInRect(p.x, p.y, minX, minY, width, height)) ||
+                            s.points.some((p, idx) => idx < s.points.length - 1 && segmentIntersectsRect(p.x, p.y, s.points[idx + 1].x, s.points[idx + 1].y, minX, minY, width, height));
                         if (intersects) strokeIdsToDelete.push(s.id);
                     });
                 }
 
-                if (eraserTargets.images) {
+                if (canEraseImages) {
                     imagesScope.forEach(img => {
                         const intersects = !(minX > img.x + img.width || minX + width < img.x || minY > img.y + img.height || minY + height < img.y);
                         if (intersects) imageIdsToDelete.push(img.id);
                     });
                 }
 
-                if (eraserTargets.texts) {
+                if (canEraseTexts) {
                     textsScope.forEach(txt => {
                         const intersects = !(minX > txt.x + txt.width || minX + width < txt.x || minY > txt.y + txt.height || minY + height < txt.y);
                         if (intersects) textIdsToDelete.push(txt.id);
@@ -795,15 +933,24 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                 const cx = points[0].x;
                 const cy = points[0].y;
                 const radius = Math.hypot(points[points.length - 1].x - cx, points[points.length - 1].y - cy);
+                const radiusSq = radius * radius;
 
-                if (eraserTargets.strokes) {
+                if (canEraseStrokes) {
                     strokesScope.forEach(s => {
-                        const intersects = s.points.some(p => isPointInCircle(p.x, p.y, cx, cy, radius));
+                        let intersects = s.points.some(p => isPointInCircle(p.x, p.y, cx, cy, radius));
+                        if (!intersects) {
+                            for (let i = 0; i < s.points.length - 1; i++) {
+                                if (distToSegmentSq(cx, cy, s.points[i].x, s.points[i].y, s.points[i + 1].x, s.points[i + 1].y) <= radiusSq) {
+                                    intersects = true;
+                                    break;
+                                }
+                            }
+                        }
                         if (intersects) strokeIdsToDelete.push(s.id);
                     });
                 }
 
-                if (eraserTargets.images) {
+                if (canEraseImages) {
                     imagesScope.forEach(img => {
                         const closestX = Math.max(img.x, Math.min(cx, img.x + img.width));
                         const closestY = Math.max(img.y, Math.min(cy, img.y + img.height));
@@ -812,7 +959,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                     });
                 }
 
-                if (eraserTargets.texts) {
+                if (canEraseTexts) {
                     textsScope.forEach(txt => {
                         const closestX = Math.max(txt.x, Math.min(cx, txt.x + txt.width));
                         const closestY = Math.max(txt.y, Math.min(cy, txt.y + txt.height));
@@ -1938,10 +2085,50 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                             <button onClick={handleSaveToLibrary} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-purple-500 transition-colors" title="Guardar en LibrerÃ­a"><IconLibrary className="w-5 h-5" /></button>
                             <button onClick={deleteSelection} className="p-2 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg text-red-500 transition-colors" title="Eliminar"><IconTrash className="w-5 h-5" /></button>
                         </div>
-                        <div className="w-px h-6 bg-gray-300 dark:bg-gray-600 mx-2"></div>
                         <div className="flex items-center gap-1">
-                            <button onClick={(e) => { e.stopPropagation(); finalizeStrokeTransform().then(() => { setSelectedStrokeIds([]); setStrokeSelectionBounds(null); setSelectedId(null); }); }} className="p-2 bg-green-500 hover:bg-green-600 text-white rounded-lg transition-colors shadow-sm" title="Confirmar y Deseleccionar"><IconCheck className="w-5 h-5" /></button>
-                            <button onClick={(e) => { e.stopPropagation(); cancelStrokeTransform(); if (selectedId) setSelectedId(null); }} className="p-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors shadow-sm" title="Cancelar TransformaciÃ³n"><IconX className="w-5 h-5" /></button>
+                            <button 
+                                onClick={async (e) => { 
+                                    e.stopPropagation(); 
+                                    if (selectedStrokeIds.length > 0) {
+                                        await finalizeStrokeTransform(); 
+                                        setSelectedStrokeIds([]); 
+                                        setStrokeSelectionBounds(null); 
+                                    }
+                                    if (selectedId) {
+                                        const img = localImages.find(i => i.id === selectedId);
+                                        const txt = localTexts.find(t => t.id === selectedId);
+                                        if (img) {
+                                            await handleUpdateFirestore(img.id, 'image', { x: img.x, y: img.y, width: img.width, height: img.height, rotation: img.rotation });
+                                        } else if (txt) {
+                                            await handleUpdateFirestore(txt.id, 'text', { x: txt.x, y: txt.y, width: txt.width, height: txt.height, rotation: txt.rotation });
+                                        }
+                                        setSelectedId(null);
+                                        setSelectedType(null);
+                                    }
+                                }} 
+                                className="p-2 bg-green-500 hover:bg-green-600 text-white rounded-lg transition-colors shadow-sm" 
+                                title="Confirmar y Deseleccionar"
+                            >
+                                <IconCheck className="w-5 h-5" />
+                            </button>
+                            <button 
+                                onClick={(e) => { 
+                                    e.stopPropagation(); 
+                                    cancelStrokeTransform(); 
+                                    if (selectedId) {
+                                        setLocalImages(activeImages);
+                                        setLocalTexts(activeTexts);
+                                        setSelectedId(null);
+                                        setSelectedType(null);
+                                    }
+                                    setSelectedStrokeIds([]);
+                                    setStrokeSelectionBounds(null);
+                                }} 
+                                className="p-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors shadow-sm" 
+                                title="Cancelar Transformación"
+                            >
+                                <IconX className="w-5 h-5" />
+                            </button>
                         </div>
                     </div>
                 )}

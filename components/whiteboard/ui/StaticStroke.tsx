@@ -7,7 +7,7 @@ import { getStroke } from 'perfect-freehand';
 import { getSvgPathFromStroke, getSimplePolygonPath, getStrokePath } from '../../../utils/whiteboardUtils';
 
 // Función de comparación profunda para evitar re-renders si la data visual no cambia
-const arePropsEqual = (prevProps: { stroke: WhiteboardStroke }, nextProps: { stroke: WhiteboardStroke }) => {
+const arePropsEqual = (prevProps: { stroke: WhiteboardStroke & { cachedPath?: string } }, nextProps: { stroke: WhiteboardStroke & { cachedPath?: string } }) => {
     const p = prevProps.stroke;
     const n = nextProps.stroke;
 
@@ -17,7 +17,14 @@ const arePropsEqual = (prevProps: { stroke: WhiteboardStroke }, nextProps: { str
 
     return (
         p.id === n.id &&
+        p.cachedPath === n.cachedPath &&
         p.points.length === n.points.length &&
+        (p.points.length === 0 || (
+            p.points[0]?.x === n.points[0]?.x &&
+            p.points[0]?.y === n.points[0]?.y &&
+            p.points[p.points.length - 1]?.x === n.points[n.points.length - 1]?.x &&
+            p.points[p.points.length - 1]?.y === n.points[n.points.length - 1]?.y
+        )) &&
         p.color === n.color &&
         p.size === n.size &&
         p.opacity === n.opacity &&
