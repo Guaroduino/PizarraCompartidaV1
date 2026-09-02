@@ -188,7 +188,7 @@ export const useWhiteboardSync = (user: User | null, isTeacher: boolean, courseI
         return () => unsub();
     }, [activeBoardId, isTeacher]);
 
-    // 6. Sync Content (Filtered by Active Page)
+    // 6. Sync Content (Filtered by Active Page) con actualización incremental de alto rendimiento
     useEffect(() => {
         if (!activeBoardId || !activePageId) {
             setStrokes([]); setImages([]); setTexts([]);
@@ -199,9 +199,119 @@ export const useWhiteboardSync = (user: User | null, isTeacher: boolean, courseI
         const qI = query(collection(db, 'whiteboardImages'), where('pageId', '==', activePageId));
         const qT = query(collection(db, 'whiteboardTexts'), where('pageId', '==', activePageId));
         
-        const unsubS = onSnapshot(qS, s => setStrokes(s.docs.map(d => ({ id: d.id, ...d.data() } as WhiteboardStroke))));
-        const unsubI = onSnapshot(qI, s => setImages(s.docs.map(d => ({ id: d.id, ...d.data() } as WhiteboardImage))));
-        const unsubT = onSnapshot(qT, s => setTexts(s.docs.map(d => ({ id: d.id, ...d.data() } as WhiteboardText))));
+        // Escuchador incremental de trazos: evita reconstruir y re-renderizar toda la pizarra ante cada línea nueva
+        const unsubS = onSnapshot(qS, (snapshot) => {
+            const changes = snapshot.docChanges();
+            if (changes.length === 0) return;
+
+            setStrokes((prevStrokes) => {
+                if (prevStrokes.length === 0) {
+                    return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as WhiteboardStroke));
+                }
+
+                const strokeMap = new Map<string, WhiteboardStroke>();
+                for (let i = 0; i < prevStrokes.length; i++) {
+                    strokeMap.set(prevStrokes[i].id, prevStrokes[i]);
+                }
+
+                let hasChanged = false;
+                for (let i = 0; i < changes.length; i++) {
+                    const change = changes[i];
+                    const docId = change.doc.id;
+                    if (change.type === 'added') {
+                        if (!strokeMap.has(docId)) {
+                            strokeMap.set(docId, { id: docId, ...change.doc.data() } as WhiteboardStroke);
+                            hasChanged = true;
+                        }
+                    } else if (change.type === 'modified') {
+                        strokeMap.set(docId, { id: docId, ...change.doc.data() } as WhiteboardStroke);
+                        hasChanged = true;
+                    } else if (change.type === 'removed') {
+                        if (strokeMap.delete(docId)) {
+                            hasChanged = true;
+                        }
+                    }
+                }
+
+                return hasChanged ? Array.from(strokeMap.values()) : prevStrokes;
+            });
+        });
+
+        // Escuchador incremental de imágenes
+        const unsubI = onSnapshot(qI, (snapshot) => {
+            const changes = snapshot.docChanges();
+            if (changes.length === 0) return;
+
+            setImages((prevImages) => {
+                if (prevImages.length === 0) {
+                    return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as WhiteboardImage));
+                }
+
+                const imageMap = new Map<string, WhiteboardImage>();
+                for (let i = 0; i < prevImages.length; i++) {
+                    imageMap.set(prevImages[i].id, prevImages[i]);
+                }
+
+                let hasChanged = false;
+                for (let i = 0; i < changes.length; i++) {
+                    const change = changes[i];
+                    const docId = change.doc.id;
+                    if (change.type === 'added') {
+                        if (!imageMap.has(docId)) {
+                            imageMap.set(docId, { id: docId, ...change.doc.data() } as WhiteboardImage);
+                            hasChanged = true;
+                        }
+                    } else if (change.type === 'modified') {
+                        imageMap.set(docId, { id: docId, ...change.doc.data() } as WhiteboardImage);
+                        hasChanged = true;
+                    } else if (change.type === 'removed') {
+                        if (imageMap.delete(docId)) {
+                            hasChanged = true;
+                        }
+                    }
+                }
+
+                return hasChanged ? Array.from(imageMap.values()) : prevImages;
+            });
+        });
+
+        // Escuchador incremental de textos
+        const unsubT = onSnapshot(qT, (snapshot) => {
+            const changes = snapshot.docChanges();
+            if (changes.length === 0) return;
+
+            setTexts((prevTexts) => {
+                if (prevTexts.length === 0) {
+                    return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as WhiteboardText));
+                }
+
+                const textMap = new Map<string, WhiteboardText>();
+                for (let i = 0; i < prevTexts.length; i++) {
+                    textMap.set(prevTexts[i].id, prevTexts[i]);
+                }
+
+                let hasChanged = false;
+                for (let i = 0; i < changes.length; i++) {
+                    const change = changes[i];
+                    const docId = change.doc.id;
+                    if (change.type === 'added') {
+                        if (!textMap.has(docId)) {
+                            textMap.set(docId, { id: docId, ...change.doc.data() } as WhiteboardText);
+                            hasChanged = true;
+                        }
+                    } else if (change.type === 'modified') {
+                        textMap.set(docId, { id: docId, ...change.doc.data() } as WhiteboardText);
+                        hasChanged = true;
+                    } else if (change.type === 'removed') {
+                        if (textMap.delete(docId)) {
+                            hasChanged = true;
+                        }
+                    }
+                }
+
+                return hasChanged ? Array.from(textMap.values()) : prevTexts;
+            });
+        });
         
         let unsubSnap: any = () => {};
         if (isTeacher && user) {

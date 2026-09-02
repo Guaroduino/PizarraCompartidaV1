@@ -60,6 +60,9 @@ const pseudoRandom = (seedStr: string) => {
     return Math.abs(Math.sin(hash) * 10000) % 1;
 };
 
+// Caché en memoria para evitar recalcular SVG paths de trazos recibidos por red
+const globalPathCache = new Map<string, string>();
+
 export const StaticStroke = React.memo(({ stroke }: { stroke: WhiteboardStroke & { cachedPath?: string } }) => {
     const options = stroke.options as ExtendedStrokeOptions | undefined;
     const isFilled = options?.filled ?? false;
@@ -92,34 +95,43 @@ export const StaticStroke = React.memo(({ stroke }: { stroke: WhiteboardStroke &
         return getSimplePolygonPath(fillPoints);
     }, [stroke.points, isFilled, fillRoughness, stroke.id]);
 
-    // 2. Calculate Stroke Path
+    // 2. Calculate Stroke Path (con caché en memoria O(1))
     const strokePathData = useMemo(() => {
         if (!isStroked) return '';
         if (stroke.cachedPath && !options?.strokeWidthJitter) return stroke.cachedPath;
+        if (stroke.id && globalPathCache.has(stroke.id) && !options?.strokeWidthJitter) {
+            return globalPathCache.get(stroke.id)!;
+        }
 
+        let path = '';
         // Geometric Outline (Constant Thickness)
         if (isSharp) {
-            return getStrokePath(stroke.points);
-        }
-
-        // Ink Stroke (Variable Thickness) - Perfect Freehand
-        let finalSimulatePressure = options?.simulatePressure ?? true;
-        if (options?.useStylusPressure !== false) {
-            const uniquePressures = new Set(stroke.points.map(p => p.pressure).filter(p => p !== undefined && p !== 0.5 && p !== 1.0));
-            if (uniquePressures.size > 1) {
-                finalSimulatePressure = false;
+            path = getStrokePath(stroke.points);
+        } else {
+            // Ink Stroke (Variable Thickness) - Perfect Freehand
+            let finalSimulatePressure = options?.simulatePressure ?? true;
+            if (options?.useStylusPressure !== false) {
+                const uniquePressures = new Set(stroke.points.map(p => p.pressure).filter(p => p !== undefined && p !== 0.5 && p !== 1.0));
+                if (uniquePressures.size > 1) {
+                    finalSimulatePressure = false;
+                }
             }
+
+            const strokeOptions = {
+                size: stroke.size,
+                ...stroke.options,
+                simulatePressure: finalSimulatePressure
+            };
+            const outlinePoints = getStroke(stroke.points, strokeOptions);
+            path = getSvgPathFromStroke(outlinePoints);
         }
 
-        const strokeOptions = {
-            size: stroke.size,
-            ...stroke.options,
-            simulatePressure: finalSimulatePressure
-        };
-        const outlinePoints = getStroke(stroke.points, strokeOptions);
-        return getSvgPathFromStroke(outlinePoints);
-
-    }, [stroke.points, stroke.size, stroke.options, stroke.cachedPath, isSharp, isStroked]);
+        if (stroke.id && path) {
+            if (globalPathCache.size > 3000) globalPathCache.clear();
+            globalPathCache.set(stroke.id, path);
+        }
+        return path;
+    }, [stroke.id, stroke.points, stroke.size, stroke.options, stroke.cachedPath, isSharp, isStroked]);
 
     if (!isFilled && !isStroked) return null;
 

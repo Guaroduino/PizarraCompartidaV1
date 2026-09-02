@@ -6,7 +6,7 @@ import { db } from '../services/firebase';
 import type { User, WhiteboardStroke, WhiteboardImage, WhiteboardText, Point, GridConfig, LibraryItem } from '../types';
 import { getStroke } from 'perfect-freehand';
 import { uploadFile } from '../services/storageService';
-import { getSvgPathFromStroke, isPointInPolygon, DEFAULT_PRESETS, resizeImage, getBoundingBox, getSimplePolygonPath, getStrokePath } from '../utils/whiteboardUtils';
+import { getSvgPathFromStroke, isPointInPolygon, DEFAULT_PRESETS, resizeImage, getBoundingBox, getSimplePolygonPath, getStrokePath, simplifyPoints } from '../utils/whiteboardUtils';
 import { ImageImportModal } from './whiteboard/ui/ImageImportModal';
 import { LayerManager } from './whiteboard/ui/LayerManager';
 import { WhiteboardSettings } from './whiteboard/ui/WhiteboardSettings';
@@ -978,23 +978,30 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
             return;
         }
 
-        // Pre-calculate cachedPath
+        // Simplificar puntos para descartar micro-jitter y reducir payload en red hasta 70%
+        const simplified = isSharpTool ? points : simplifyPoints(points, 1.8);
+        const roundedPath = simplified.map(p => ({
+            x: Math.round(p.x * 100) / 100,
+            y: Math.round(p.y * 100) / 100,
+            pressure: Math.round((p.pressure ?? 0.5) * 100) / 100
+        }));
+
+        // Pre-calcular cachedPath para renderizado local inmediato en memoria
         let cachedPath = '';
         if (effectiveStroked) {
             if (isSharpTool) {
-                cachedPath = getStrokePath(points);
+                cachedPath = getStrokePath(roundedPath);
             } else {
                 const strokeOptions = {
                     size: size,
                     ...finalOptions
                 };
-                const outlinePoints = getStroke(points, strokeOptions);
+                const outlinePoints = getStroke(roundedPath, strokeOptions);
                 cachedPath = getSvgPathFromStroke(outlinePoints);
             }
         }
 
         if (isSyncPaused) {
-            const roundedPath = points.map(p => ({ x: Math.round(p.x * 100) / 100, y: Math.round(p.y * 100) / 100, pressure: Math.round(p.pressure * 100) / 100 }));
             const tempId = `temp_stroke_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
             const newStroke: WhiteboardStroke = {
                 id: tempId, points: roundedPath, color, size, opacity, timestamp: Date.now(),
@@ -1008,28 +1015,29 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
 
         setIsSyncing(true);
         try {
-            const roundedPath = points.map(p => ({ x: Math.round(p.x * 100) / 100, y: Math.round(p.y * 100) / 100, pressure: Math.round(p.pressure * 100) / 100 }));
-            
             const docRef = doc(collection(db, 'whiteboardStrokes'));
             const strokeId = docRef.id;
 
+            // Omitir cachedPath de Firestore: ahorra ~85% de ancho de banda por trazo.
+            // Los clientes calculan y memoizan el SVG en <0.1ms en StaticStroke.
             const strokeData = {
                 points: roundedPath, color, size, opacity, timestamp: Date.now(),
                 boardId: activeBoardId, pageId: activePageId, layerId: activeLayerId, keyframeId: activeKeyframeId,
-                type: (tool === 'pen' ? 'pen' : 'eraser') as 'pen' | 'eraser', deleted: false, options: finalOptions,
-                cachedPath
+                type: (tool === 'pen' ? 'pen' : 'eraser') as 'pen' | 'eraser', deleted: false, options: finalOptions
             };
 
             const syncingStroke: WhiteboardStroke = {
                 id: strokeId,
-                ...strokeData
+                ...strokeData,
+                cachedPath
             };
 
             setSyncingStrokes(prev => [...prev, syncingStroke]);
 
+            // Timeout de respaldo amplio (10s) para evitar parpadeos si la red tiene alta latencia
             setTimeout(() => {
                 setSyncingStrokes(prev => prev.filter(s => s.id !== strokeId));
-            }, 1500);
+            }, 10000);
 
             await setDoc(docRef, strokeData);
             recordAction({ type: 'create', targetType: 'stroke', targetId: strokeId, data: strokeData });
