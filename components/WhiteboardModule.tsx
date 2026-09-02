@@ -362,7 +362,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
 
     const addPageAtIndex = async (index: number) => {
         if (!activeBoardId) return;
-        const name = prompt('Añadir nueva pizarra (diapositiva) - nombre opcional:');
+        const name = prompt('AÃ±adir nueva pizarra (diapositiva) - nombre opcional:');
 
         const newList = [...pages];
         newList.splice(index, 0, { id: 'temp_new' } as any);
@@ -388,13 +388,13 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
 
     const handleSavePageToLibrary = async (pageId: string) => {
         if (!isTeacher || !user) return;
-        const name = prompt('Nombre para guardar la diapositiva en la librería:', `Diapositiva ${pages.findIndex(p => p.id === pageId) + 1}`);
+        const name = prompt('Nombre para guardar la diapositiva en la librerÃ­a:', `Diapositiva ${pages.findIndex(p => p.id === pageId) + 1}`);
         if (!name) return;
         try {
             await savePageToLibrary(pageId, user.uid, name);
-            alert('Diapositiva guardada en la librería.');
+            alert('Diapositiva guardada en la librerÃ­a.');
         } catch (e) {
-            console.error('Error guardando diapositiva en librería:', e);
+            console.error('Error guardando diapositiva en librerÃ­a:', e);
             alert('Error al guardar la diapositiva.');
         }
     };
@@ -411,7 +411,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
             const textsData = textsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
             const normalized = normalizeItems(strokesData as any, imagesData as any, textsData as any);
-            if (!normalized) { alert('Diapositiva vacía. Nada que descargar.'); return; }
+            if (!normalized) { alert('Diapositiva vacÃ­a. Nada que descargar.'); return; }
 
             const svgDataUri = generateThumbnailSvg(normalized.data, normalized.width || 800, normalized.height || 600);
 
@@ -449,7 +449,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
     };
 
 
-    const { undo, redo, recordAction, historyIndex, redoStack, clearHistory } = useWhiteboardHistory(setIsSyncing);
+    const { undo, redo, recordAction, recordActionGroup, historyIndex, redoStack, clearHistory } = useWhiteboardHistory(setIsSyncing);
 
     useEffect(() => {
         if (activePageId && pagesListRef.current) {
@@ -600,7 +600,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                 await batch.commit();
             } catch (e) {
                 console.error("Error deleting strokes:", e);
-                alert("Error al borrar trazos. Verifique su conexión.");
+                alert("Error al borrar trazos. Verifique su conexiÃ³n.");
             } finally {
                 setIsSyncing(false);
             }
@@ -651,7 +651,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
         isSelectionGrouped,
         copySelection, cutSelection, pasteFromClipboard, deleteSelection, moveSelectionToLayer
     } = useWhiteboardSelection({
-        strokes, images, texts, activeLayerId, cameraScale: camera.scale, setIsSyncing, recordAction, activeStrokes, activeImages, activeTexts,
+        strokes, images, texts, activeLayerId, cameraScale: camera.scale, setIsSyncing, recordAction, recordActionGroup, activeStrokes, activeImages, activeTexts,
         onDeleteStrokes: handleDeleteStrokes
     });
 
@@ -1100,7 +1100,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
             });
         } catch (e) {
             console.error(e);
-            alert("Error al guardar en la librería.");
+            alert("Error al guardar en la librerÃ­a.");
         } finally {
             setIsSyncing(false);
             setLibraryImportFile(null);
@@ -1121,7 +1121,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
         const normalized = normalizeItems(selectedStrokes, selImages, selTexts);
 
         if (normalized) {
-            const name = prompt("Nombre del grupo/item para la librería:", "Nuevo Grupo");
+            const name = prompt("Nombre del grupo/item para la librerÃ­a:", "Nuevo Grupo");
             if (!name) return;
 
             let thumbUrl = '';
@@ -1186,7 +1186,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
 
     const handleRemoveLibraryItem = async (itemId: string) => {
         if (!isTeacher) return;
-        requestConfirm("¿Eliminar de librería?", "Esta acción no se puede deshacer.", async () => {
+        requestConfirm("Â¿Eliminar de librerÃ­a?", "Esta acciÃ³n no se puede deshacer.", async () => {
             try {
                 await deleteDoc(doc(db, 'libraryItems', itemId));
             } catch (error) {
@@ -1332,7 +1332,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
             recordAction({ type: 'create', targetType: 'image', targetId: docRef.id, data: imageData });
         } catch (e) {
             console.error("Error dropping panel image:", e);
-            alert("Error al subir la imagen generada. Verifique su conexión.");
+            alert("Error al subir la imagen generada. Verifique su conexiÃ³n.");
         } finally {
             setIsSyncing(false);
         }
@@ -1401,7 +1401,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
             }
             return;
         }
-        requestConfirm("¿Eliminar Fotograma?", "Se borrarán objetos.", async () => {
+        requestConfirm("Â¿Eliminar Fotograma?", "Se borrarÃ¡n objetos.", async () => {
             setIsSyncing(true);
             try {
                 const batch = writeBatch(db);
@@ -1435,8 +1435,8 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
         }
     };
 
-    const handleDeleteBoard = (boardId: string) => { requestConfirm("¿Borrar Clase?", "Irreversible.", () => deleteBoard(boardId), true); };
-    const handleDeleteLayer = (layerId: string) => { requestConfirm("¿Eliminar Capa?", "Irreversible.", () => deleteLayer(layerId), true); };
+    const handleDeleteBoard = (boardId: string) => { requestConfirm("Â¿Borrar Clase?", "Irreversible.", () => deleteBoard(boardId), true); };
+    const handleDeleteLayer = (layerId: string) => { requestConfirm("Â¿Eliminar Capa?", "Irreversible.", () => deleteLayer(layerId), true); };
 
     const handleZoomExtents = useCallback(() => {
         const margin = 20;
@@ -1582,7 +1582,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
 
     const handleClearBoard = () => {
         if (!isTeacher || !activeBoardId) return;
-        requestConfirm("¿Vaciar Pizarra?", "Irreversible.", async () => {
+        requestConfirm("Â¿Vaciar Pizarra?", "Irreversible.", async () => {
             setIsSyncing(true);
             try {
                 const strokeRefs = activeStrokes.filter(s => !s.id.startsWith('temp_')).map(s => doc(db, 'whiteboardStrokes', s.id));
@@ -1599,7 +1599,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                 setPendingStrokes([]); setPendingImages([]); setPendingTexts([]); clearHistory();
             } catch (error) {
                 console.error("Error clearing board:", error);
-                alert("Hubo un error al vaciar la pizarra. Por favor, inténtelo de nuevo.");
+                alert("Hubo un error al vaciar la pizarra. Por favor, intÃ©ntelo de nuevo.");
             } finally { setIsSyncing(false); }
         }, true);
     };
@@ -1698,13 +1698,13 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                                 {isTeacher && (
                                     <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
                                         <button onClick={(e) => { e.stopPropagation(); addBoardAtIndex(idx); }} className="p-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400" title="Agregar antes"><IconPlus className="w-3 h-3" /></button>
-                                        <button onClick={(e) => { e.stopPropagation(); addBoardAtIndex(idx + 1); }} className="p-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400" title="Agregar después"><IconPlus className="w-3 h-3" /></button>
+                                        <button onClick={(e) => { e.stopPropagation(); addBoardAtIndex(idx + 1); }} className="p-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400" title="Agregar despuÃ©s"><IconPlus className="w-3 h-3" /></button>
                                         
                                         {activeBoardId === board.id && (
                                             <>
                                                 <button onClick={(e) => { e.stopPropagation(); handleRenameBoard(board.id, board.name); }} className="p-1 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/40 text-gray-400 hover:text-blue-500" title="Renombrar"><IconPencil className="w-3 h-3" /></button>
                                                 <button onClick={(e) => { e.stopPropagation(); exportBoard(board.id); }} className="p-1 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/40 text-gray-400 hover:text-blue-500" title="Descargar"><IconDownload className="w-3 h-3" /></button>
-                                                <button onClick={(e) => { e.stopPropagation(); handleSaveBoardAsClass(); }} className="p-1 rounded-md hover:bg-green-100 dark:hover:bg-green-900/40 text-gray-400 hover:text-green-500" title="Guardar en Librería"><IconBook className="w-3 h-3" /></button>
+                                                <button onClick={(e) => { e.stopPropagation(); handleSaveBoardAsClass(); }} className="p-1 rounded-md hover:bg-green-100 dark:hover:bg-green-900/40 text-gray-400 hover:text-green-500" title="Guardar en LibrerÃ­a"><IconBook className="w-3 h-3" /></button>
                                                 {sortedBoards.length > 1 && (
                                                     <button onClick={(e) => { e.stopPropagation(); handleDeleteBoard(board.id); }} className="p-1 rounded-md hover:bg-red-100 dark:hover:bg-red-900/40 text-gray-400 hover:text-red-500" title="Borrar"><IconX className="w-3 h-3" /></button>
                                                 )}
@@ -1721,21 +1721,21 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                             <>
                                 <button onClick={() => { const name = prompt("Nombre de la nueva clase:"); if (name) createBoard(name); }} className="p-2 text-gray-500 hover:text-primary hover:bg-gray-300 dark:hover:bg-gray-700 rounded-lg transition-colors" title="Nueva Clase"><IconPlus className="w-4 h-4" /></button>
                                 <label className="p-2 text-gray-500 hover:text-green-500 hover:bg-gray-300 dark:hover:bg-gray-700 rounded-lg transition-colors cursor-pointer" title="Cargar (.json)"><IconUpload className="w-4 h-4" /><input ref={importInputRef} type="file" accept=".json" className="hidden" onChange={(e) => { if (e.target.files?.[0]) importBoard(e.target.files[0]); if (importInputRef.current) importInputRef.current.value = ''; }} /></label>
-                                <button onClick={() => setShowClassLibraryManager(true)} className="p-2 text-gray-500 hover:text-blue-500 hover:bg-gray-300 dark:hover:bg-gray-700 rounded-lg transition-colors" title="Librería de Clases"><IconBook className="w-4 h-4" /></button>
+                                <button onClick={() => setShowClassLibraryManager(true)} className="p-2 text-gray-500 hover:text-blue-500 hover:bg-gray-300 dark:hover:bg-gray-700 rounded-lg transition-colors" title="LibrerÃ­a de Clases"><IconBook className="w-4 h-4" /></button>
                                 <div className="w-px h-6 bg-gray-300 dark:bg-gray-700 mx-1"></div>
                             </>
                         )}
                         <div className="flex items-center gap-2">
                             <div className="flex flex-col items-end">
-                                <span className="text-[9px] font-black uppercase text-gray-400 tracking-wider leading-none mb-0.5">Salón</span>
+                                <span className="text-[9px] font-black uppercase text-gray-400 tracking-wider leading-none mb-0.5">SalÃ³n</span>
                                 <span className="font-bold text-gray-700 dark:text-gray-200 truncate max-w-[150px] text-sm leading-none" title={courseTitle}>
                                     {courseTitle || '...'}
                                 </span>
                             </div>
                             {courseCode && isTeacher && (
                                 <div className="flex flex-col items-end border-l border-gray-300 dark:border-gray-600 pl-2">
-                                    <span className="text-[9px] font-black uppercase text-gray-400 tracking-wider leading-none mb-0.5">Código</span>
-                                    <span className="font-mono font-bold text-primary text-sm leading-none select-all cursor-pointer hover:scale-105 transition-transform" title="Copiar código" onClick={() => navigator.clipboard.writeText(courseCode)}>
+                                    <span className="text-[9px] font-black uppercase text-gray-400 tracking-wider leading-none mb-0.5">CÃ³digo</span>
+                                    <span className="font-mono font-bold text-primary text-sm leading-none select-all cursor-pointer hover:scale-105 transition-transform" title="Copiar cÃ³digo" onClick={() => navigator.clipboard.writeText(courseCode)}>
                                         {courseCode}
                                     </span>
                                 </div>
@@ -1760,7 +1760,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                             const txt = editingTextObject;
                             if (!txt) return;
                             if (txt.allowCopy === false) {
-                                // Indicamos al profesor que la copia está deshabilitada
+                                // Indicamos al profesor que la copia estÃ¡ deshabilitada
                                 alert('Copiar deshabilitado para este texto.');
                                 return;
                             }
@@ -1935,13 +1935,13 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                             {selectedId && selectedType === 'image' && !selectedStrokeIds.length && (
                                 <button onClick={handleEditImage} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-green-500 transition-colors" title="Editar Imagen"><IconCrop className="w-5 h-5" /></button>
                             )}
-                            <button onClick={handleSaveToLibrary} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-purple-500 transition-colors" title="Guardar en Librería"><IconLibrary className="w-5 h-5" /></button>
+                            <button onClick={handleSaveToLibrary} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-purple-500 transition-colors" title="Guardar en LibrerÃ­a"><IconLibrary className="w-5 h-5" /></button>
                             <button onClick={deleteSelection} className="p-2 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg text-red-500 transition-colors" title="Eliminar"><IconTrash className="w-5 h-5" /></button>
                         </div>
                         <div className="w-px h-6 bg-gray-300 dark:bg-gray-600 mx-2"></div>
                         <div className="flex items-center gap-1">
                             <button onClick={(e) => { e.stopPropagation(); finalizeStrokeTransform().then(() => { setSelectedStrokeIds([]); setStrokeSelectionBounds(null); setSelectedId(null); }); }} className="p-2 bg-green-500 hover:bg-green-600 text-white rounded-lg transition-colors shadow-sm" title="Confirmar y Deseleccionar"><IconCheck className="w-5 h-5" /></button>
-                            <button onClick={(e) => { e.stopPropagation(); cancelStrokeTransform(); if (selectedId) setSelectedId(null); }} className="p-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors shadow-sm" title="Cancelar Transformación"><IconX className="w-5 h-5" /></button>
+                            <button onClick={(e) => { e.stopPropagation(); cancelStrokeTransform(); if (selectedId) setSelectedId(null); }} className="p-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors shadow-sm" title="Cancelar TransformaciÃ³n"><IconX className="w-5 h-5" /></button>
                         </div>
                     </div>
                 )}
@@ -1949,7 +1949,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                 <div className="absolute top-4 right-4 z-40 flex items-center gap-2">
                     {!isTeacher && (
                         <div className="flex bg-white/80 dark:bg-black/80 backdrop-blur-xl rounded-xl p-1 shadow-xl border border-white/20 items-center">
-                            <button onClick={() => setIsFollowingTeacher(!isFollowingTeacher)} className={`p-2 rounded-lg shadow-sm transition-colors flex items-center gap-2 text-xs font-bold ${isFollowingTeacher ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300' : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'}`} title={isFollowingTeacher ? "Siguiendo al profesor" : "Navegación libre"}>
+                            <button onClick={() => setIsFollowingTeacher(!isFollowingTeacher)} className={`p-2 rounded-lg shadow-sm transition-colors flex items-center gap-2 text-xs font-bold ${isFollowingTeacher ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300' : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'}`} title={isFollowingTeacher ? "Siguiendo al profesor" : "NavegaciÃ³n libre"}>
                                 {isFollowingTeacher ? <IconLockClosed className="w-4 h-4" /> : <IconLockOpen className="w-4 h-4" />}
                                 {isFollowingTeacher ? 'Sincronizado' : 'Modo Libre'}
                             </button>
@@ -2027,10 +2027,10 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                         <button
                             onClick={finishPolyline}
                             className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-xl shadow-lg border border-green-400 font-bold text-xs flex items-center gap-1.5 transition-all hover:scale-105"
-                            title="Finalizar Polilínea (Enter / Clic Largo)"
+                            title="Finalizar PolilÃ­nea (Enter / Clic Largo)"
                         >
                             <IconCheck className="w-4 h-4" />
-                            <span>Finalizar Polilínea</span>
+                            <span>Finalizar PolilÃ­nea</span>
                         </button>
                     </div>
                 )}
@@ -2123,13 +2123,13 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                                     {isTeacher && (
                                         <>
                                             <button onClick={(e) => { e.stopPropagation(); addPageAtIndex(idx); }} title="Agregar antes" className="absolute -left-3 top-1/2 -translate-y-1/2 bg-white dark:bg-gray-800 border rounded-full p-0.5 shadow text-gray-500 hover:text-primary hover:scale-110"><IconPlus className="w-3 h-3" /></button>
-                                            <button onClick={(e) => { e.stopPropagation(); addPageAtIndex(idx + 1); }} title="Agregar después" className="absolute -right-3 top-1/2 -translate-y-1/2 bg-white dark:bg-gray-800 border rounded-full p-0.5 shadow text-gray-500 hover:text-primary hover:scale-110"><IconPlus className="w-3 h-3" /></button>
+                                            <button onClick={(e) => { e.stopPropagation(); addPageAtIndex(idx + 1); }} title="Agregar despuÃ©s" className="absolute -right-3 top-1/2 -translate-y-1/2 bg-white dark:bg-gray-800 border rounded-full p-0.5 shadow text-gray-500 hover:text-primary hover:scale-110"><IconPlus className="w-3 h-3" /></button>
                                         </>
                                     )}
 
                                     {/* Save to library (top-left) - only show when page is active */}
                                     {isTeacher && activePageId === page.id && (
-                                        <button onClick={(e) => { e.stopPropagation(); handleSavePageToLibrary(page.id); }} title="Guardar diapositiva en librería" className="absolute -top-2 -left-2 bg-white dark:bg-gray-800 border rounded-full p-0.5 shadow text-purple-600 hover:text-purple-800 z-10 transition-transform hover:scale-110"><IconLibrary className="w-3 h-3" /></button>
+                                        <button onClick={(e) => { e.stopPropagation(); handleSavePageToLibrary(page.id); }} title="Guardar diapositiva en librerÃ­a" className="absolute -top-2 -left-2 bg-white dark:bg-gray-800 border rounded-full p-0.5 shadow text-purple-600 hover:text-purple-800 z-10 transition-transform hover:scale-110"><IconLibrary className="w-3 h-3" /></button>
                                     )}
 
                                     {/* Download as JPG (bottom-right) - only show when page is active */}

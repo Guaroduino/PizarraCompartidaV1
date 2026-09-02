@@ -1,4 +1,4 @@
-
+﻿
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { doc, updateDoc, writeBatch, collection, deleteField, deleteDoc } from "firebase/firestore";
 import { db } from '../services/firebase';
@@ -14,6 +14,7 @@ interface UseWhiteboardSelectionProps {
     cameraScale: number;
     setIsSyncing: (val: boolean) => void;
     recordAction: (action: WhiteboardAction) => void;
+    recordActionGroup: (actions: WhiteboardAction[]) => void;
     activeStrokes: WhiteboardStroke[];
     activeImages: WhiteboardImage[];
     activeTexts: WhiteboardText[];
@@ -21,7 +22,7 @@ interface UseWhiteboardSelectionProps {
 }
 
 export const useWhiteboardSelection = ({
-    strokes, images, texts, activeLayerId, cameraScale, setIsSyncing, recordAction, activeStrokes, activeImages, activeTexts, onDeleteStrokes
+    strokes, images, texts, activeLayerId, cameraScale, setIsSyncing, recordAction, recordActionGroup, activeStrokes, activeImages, activeTexts, onDeleteStrokes
 }: UseWhiteboardSelectionProps) => {
     // Single Item Selection
     const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -381,3 +382,4 @@ export const useWhiteboardSelection = ({
         moveSelectionToLayer
     };
 };
+
