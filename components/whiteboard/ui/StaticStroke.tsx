@@ -8,6 +8,7 @@ import { getSvgPathFromStroke, getSimplePolygonPath, getStrokePath } from '../..
 
 // Función de comparación profunda para evitar re-renders si la data visual no cambia
 const arePropsEqual = (prevProps: { stroke: WhiteboardStroke & { cachedPath?: string } }, nextProps: { stroke: WhiteboardStroke & { cachedPath?: string } }) => {
+    if (prevProps.stroke === nextProps.stroke) return true;
     const p = prevProps.stroke;
     const n = nextProps.stroke;
 
@@ -98,8 +99,8 @@ export const StaticStroke = React.memo(({ stroke }: { stroke: WhiteboardStroke &
     // 2. Calculate Stroke Path (con caché en memoria O(1))
     const strokePathData = useMemo(() => {
         if (!isStroked) return '';
-        if (stroke.cachedPath && !options?.strokeWidthJitter) return stroke.cachedPath;
-        if (stroke.id && globalPathCache.has(stroke.id) && !options?.strokeWidthJitter) {
+        if (stroke.cachedPath) return stroke.cachedPath;
+        if (stroke.id && globalPathCache.has(stroke.id)) {
             return globalPathCache.get(stroke.id)!;
         }
 
@@ -137,7 +138,8 @@ export const StaticStroke = React.memo(({ stroke }: { stroke: WhiteboardStroke &
 
     // Marcador Natural check - support legacy 'marker' type and new 'isNaturalMarker' option
     const isMarker = stroke.type === 'marker' || (stroke.options as ExtendedStrokeOptions)?.isNaturalMarker;
-    const currentMarkerScale = (stroke.options as ExtendedStrokeOptions)?.markerTextureScale ?? 0.1;
+    const rawScale = (stroke.options as ExtendedStrokeOptions)?.markerTextureScale ?? 0.1;
+    const currentMarkerScale = Number(Number(rawScale).toFixed(2));
 
     // Apply global offset to fill for "loose" feel if roughness is high
     const fillTransform = fillRoughness > 0
@@ -145,7 +147,7 @@ export const StaticStroke = React.memo(({ stroke }: { stroke: WhiteboardStroke &
         : undefined;
 
     return (
-        <g opacity={stroke.opacity ?? 1} style={isMarker ? { mixBlendMode: 'multiply', filter: `url(#marker-texture-${currentMarkerScale}), url(#marker-texture)` } : undefined}>
+        <g opacity={stroke.opacity ?? 1} style={isMarker ? { mixBlendMode: 'multiply', filter: `url(#marker-texture-${currentMarkerScale})` } : undefined}>
             {/* Fill Layer */}
             {isFilled && (
                 <path

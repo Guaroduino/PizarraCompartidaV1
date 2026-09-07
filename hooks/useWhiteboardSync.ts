@@ -200,15 +200,18 @@ export const useWhiteboardSync = (user: User | null, isTeacher: boolean, courseI
         const qT = query(collection(db, 'whiteboardTexts'), where('pageId', '==', activePageId));
         
         // Escuchador incremental de trazos: evita reconstruir y re-renderizar toda la pizarra ante cada línea nueva
+        let isFirstStrokes = true;
         const unsubS = onSnapshot(qS, (snapshot) => {
+            if (isFirstStrokes) {
+                isFirstStrokes = false;
+                setStrokes(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as WhiteboardStroke)));
+                return;
+            }
+
             const changes = snapshot.docChanges();
             if (changes.length === 0) return;
 
             setStrokes((prevStrokes) => {
-                if (prevStrokes.length === 0) {
-                    return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as WhiteboardStroke));
-                }
-
                 const strokeMap = new Map<string, WhiteboardStroke>();
                 for (let i = 0; i < prevStrokes.length; i++) {
                     strokeMap.set(prevStrokes[i].id, prevStrokes[i]);
@@ -238,15 +241,18 @@ export const useWhiteboardSync = (user: User | null, isTeacher: boolean, courseI
         });
 
         // Escuchador incremental de imágenes
+        let isFirstImages = true;
         const unsubI = onSnapshot(qI, (snapshot) => {
+            if (isFirstImages) {
+                isFirstImages = false;
+                setImages(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as WhiteboardImage)));
+                return;
+            }
+
             const changes = snapshot.docChanges();
             if (changes.length === 0) return;
 
             setImages((prevImages) => {
-                if (prevImages.length === 0) {
-                    return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as WhiteboardImage));
-                }
-
                 const imageMap = new Map<string, WhiteboardImage>();
                 for (let i = 0; i < prevImages.length; i++) {
                     imageMap.set(prevImages[i].id, prevImages[i]);
@@ -276,15 +282,18 @@ export const useWhiteboardSync = (user: User | null, isTeacher: boolean, courseI
         });
 
         // Escuchador incremental de textos
+        let isFirstTexts = true;
         const unsubT = onSnapshot(qT, (snapshot) => {
+            if (isFirstTexts) {
+                isFirstTexts = false;
+                setTexts(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as WhiteboardText)));
+                return;
+            }
+
             const changes = snapshot.docChanges();
             if (changes.length === 0) return;
 
             setTexts((prevTexts) => {
-                if (prevTexts.length === 0) {
-                    return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as WhiteboardText));
-                }
-
                 const textMap = new Map<string, WhiteboardText>();
                 for (let i = 0; i < prevTexts.length; i++) {
                     textMap.set(prevTexts[i].id, prevTexts[i]);

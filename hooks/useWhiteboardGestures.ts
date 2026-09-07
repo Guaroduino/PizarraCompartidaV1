@@ -106,7 +106,9 @@ export const useWhiteboardGestures = ({
 
     const lastDrawPoint = useRef<{ x: number, y: number, time: number } | null>(null);
     const isDrawing = useRef(false);
-    const rafRef = useRef<number | null>(null);
+    const drawRafActive = useRef<boolean>(false);
+    const gestureRafActive = useRef<boolean>(false);
+    const latestGesturePos = useRef<{ clientX: number, clientY: number, movementX: number, movementY: number } | null>(null);
 
     // Middle-button panning (mouse)
     const middlePan = useRef(false);
@@ -116,6 +118,9 @@ export const useWhiteboardGestures = ({
     const panStart = useRef<{ x: number, y: number, camera: { x: number, y: number, scale: number } } | null>(null);
 
     // Camera RequestAnimationFrame throttling refs
+    const cameraRef = useRef(camera);
+    useEffect(() => { cameraRef.current = camera; }, [camera]);
+
     const pendingCamera = useRef<{ x: number, y: number, scale: number } | null>(null);
     const lastCalculatedCamera = useRef<{ x: number, y: number, scale: number } | null>(null);
     const cameraRafActive = useRef<boolean>(false);
@@ -124,6 +129,7 @@ export const useWhiteboardGestures = ({
     const updateCameraRAF = (newCam: { x: number, y: number, scale: number }) => {
         pendingCamera.current = newCam;
         lastCalculatedCamera.current = newCam;
+        cameraRef.current = newCam;
         if (!cameraRafActive.current) {
             cameraRafActive.current = true;
             cameraRafId.current = requestAnimationFrame(() => {
@@ -194,7 +200,7 @@ export const useWhiteboardGestures = ({
             panStart.current = {
                 x: e.clientX,
                 y: e.clientY,
-                camera: { ...camera }
+                camera: { ...cameraRef.current }
             };
         }
 
@@ -211,7 +217,7 @@ export const useWhiteboardGestures = ({
             panStart.current = {
                 x: e.clientX,
                 y: e.clientY,
-                camera: { ...camera }
+                camera: { ...cameraRef.current }
             };
             return;
         }
@@ -235,7 +241,7 @@ export const useWhiteboardGestures = ({
             gestureStart.current = {
                 dist,
                 center: { x: centerX, y: centerY },
-                camera: { ...camera }
+                camera: { ...cameraRef.current }
             };
             return;
         }
@@ -439,7 +445,7 @@ export const useWhiteboardGestures = ({
                     panStart.current = {
                         x: e.clientX,
                         y: e.clientY,
-                        camera: { ...camera }
+                        camera: { ...cameraRef.current }
                     };
                 } else {
                     // Stylus/Mouse draws lasso selection loop on empty canvas
@@ -579,133 +585,154 @@ export const useWhiteboardGestures = ({
             });
         }
 
-        // Schedule RAF for coordinate mapping and canvas updates
-        if (rafRef.current) cancelAnimationFrame(rafRef.current);
+        // --- 1. FREEHAND DRAWING (PEN / FREEHAND ERASER) - ZERO DELAY PIPELINE ---
+        if (isDrawing.current && (tool === 'pen' || (tool === 'eraser' && eraserMode === 'freehand'))) {
+            const currentPts = currentStrokePointsRef.current;
+            // Sub-píxel en pantalla para capturar micro-movimientos con fluidez natural sin saltos
+            const minScreenDist = Math.min(strokeOpts.pointThrottle ?? 1, 0.75);
+            const throttle = minScreenDist / camera.scale;
+            const throttleSq = throttle * throttle;
 
-        rafRef.current = requestAnimationFrame(() => {
-            const { x, y } = screenToWorld(clientX, clientY);
+            for (let i = 0; i < coalesced.length; i++) {
+                const ce = coalesced[i];
+                const { x: cx, y: cy } = screenToWorld(ce.clientX, ce.clientY);
+                const mixedPressure = ce.pressure * (strokeOpts.pressureWeight ?? 1);
 
-            const shapes = ['line', 'circle', 'polyline', 'arc', 'square', 'rectangle', 'parallelogram'];
-            if (isDrawing.current && shapes.includes(tool)) {
-                if (tool === 'line' && shapeStartPoint.current) setCurrentStroke(getLinePoints(shapeStartPoint.current, { x, y, pressure: 0.5 }, strokeOpts));
-                if (tool === 'circle' && shapeStartPoint.current) setCurrentStroke(getCirclePoints(shapeStartPoint.current, { x, y, pressure: 0.5 }, strokeOpts));
-                if (tool === 'square' && shapeStartPoint.current) setCurrentStroke(getSquarePoints(shapeStartPoint.current, { x, y, pressure: 0.5 }, strokeOpts));
-                if (tool === 'rectangle' && shapeStartPoint.current) setCurrentStroke(getRectanglePoints(shapeStartPoint.current, { x, y, pressure: 0.5 }, strokeOpts));
-                if (tool === 'parallelogram' && shapeStartPoint.current) setCurrentStroke(getParallelogramPoints(shapeStartPoint.current, { x, y, pressure: 0.5 }, strokeOpts));
-                if (tool === 'polyline') setCurrentStroke([...polylinePoints.current, { x, y, pressure: 0.5 }]);
-                if (tool === 'arc') { /* ... */ }
-                return;
-            }
-
-            if ((tool === 'lasso' || tool === 'move') && isDrawing.current) {
-                setLassoPoints(prev => [...(prev || []), { x, y, pressure: 0.5 }]);
-                return;
-            }
-
-            if ((tool === 'lasso' || tool === 'move') && selectedStrokeIds.length > 0 && strokeSelectionBounds) {
-                const params = initialTransformParams.current;
-                if (!params) return;
-
-                if (transformMode === 'strokes-drag' || transformMode === 'strokes-move') {
-                    const dx = x - params.startX;
-                    const dy = y - params.startY;
-                    setTempStrokeTransform(prev => ({
-                        ...prev,
-                        x: (params.initialTx ?? 0) + dx,
-                        y: (params.initialTy ?? 0) + dy
-                    }));
-                    return;
-                }
-
-                const effCx = params.centerX + (tempStrokeTransform.x);
-                const effCy = params.centerY + (tempStrokeTransform.y);
-
-                if (transformMode === 'strokes-resize') {
-                    const currentDist = Math.hypot(x - effCx, y - effCy);
-                    const startDist = params.startDistance || 1;
-                    const scaleRatio = currentDist / startDist;
-                    const newScale = Math.max(0.1, (params.initialScale || 1) * scaleRatio);
-
-                    setTempStrokeTransform(prev => ({ ...prev, scale: newScale }));
-                    return;
-                }
-
-                if (transformMode === 'strokes-rotate') {
-                    const currentAngle = Math.atan2(y - effCy, x - effCx);
-                    const angleDiff = currentAngle - (params.startAngle || 0);
-                    const angleDeg = angleDiff * (180 / Math.PI);
-
-                    setTempStrokeTransform(prev => ({ ...prev, rotation: (params.initialRotation || 0) + angleDeg }));
-                    return;
-                }
-            }
-
-            if ((tool === 'move' || isCropMode) && selectedId && transformMode) {
-                const dx = movementX / camera.scale;
-                const dy = movementY / camera.scale;
-                if (selectedId) {
-                    const targetType = (latestImagesRef.current.find(i => i.id === selectedId) || activeImages.find(i => i.id === selectedId)) ? 'image' : 'text';
-                    if (targetType === 'image') {
-                        setImages(prev => {
-                            const updated = prev.map(i => {
-                                if (i.id !== selectedId) return i;
-                                if (transformMode === 'drag') return { ...i, x: i.x + dx, y: i.y + dy };
-                                if (transformMode === 'resize') { const newW = Math.max(20, x - i.x); return { ...i, width: newW, height: newW * (i.height / i.width) }; }
-                                if (transformMode === 'rotate') return { ...i, rotation: Math.atan2(y - (i.y + i.height / 2), x - (i.x + i.width / 2)) * (180 / Math.PI) + 90 };
-                                return i;
-                            });
-                            latestImagesRef.current = updated;
-                            return updated;
-                        });
-                    } else {
-                        setTexts(prev => {
-                            const updated = prev.map(t => {
-                                if (t.id !== selectedId) return t;
-                                if (transformMode === 'drag') return { ...t, x: t.x + dx, y: t.y + dy };
-                                if (transformMode === 'resize') return { ...t, width: Math.max(50, x - t.x), height: Math.max(50, y - t.y) };
-                                if (transformMode === 'rotate') return { ...t, rotation: Math.atan2(y - (t.y + t.height / 2), x - (t.x + t.width / 2)) * (180 / Math.PI) + 90 };
-                                return t;
-                            });
-                            latestTextsRef.current = updated;
-                            return updated;
-                        });
+                if (currentPts.length > 0) {
+                    const last = currentPts[currentPts.length - 1];
+                    const dx = cx - last.x;
+                    const dy = cy - last.y;
+                    if ((dx * dx + dy * dy) < throttleSq) {
+                        continue;
                     }
                 }
-                return;
+                currentPts.push({ x: cx, y: cy, pressure: mixedPressure });
             }
 
-            if (isDrawing.current && (tool === 'pen' || tool === 'eraser')) {
-                if (tool === 'eraser' && eraserMode !== 'freehand') {
+            lastDrawPoint.current = { x: clientX, y: clientY, time: Date.now() };
+
+            if (!drawRafActive.current) {
+                drawRafActive.current = true;
+                requestAnimationFrame(() => {
+                    drawRafActive.current = false;
+                    if (isDrawing.current) {
+                        setCurrentStroke([...currentStrokePointsRef.current]);
+                    }
+                });
+            }
+            return;
+        }
+
+        // --- 2. GESTURES, SHAPES, LASSO & TRANSFORMS ---
+        latestGesturePos.current = { clientX, clientY, movementX, movementY };
+
+        if (!gestureRafActive.current) {
+            gestureRafActive.current = true;
+            requestAnimationFrame(() => {
+                gestureRafActive.current = false;
+                const pos = latestGesturePos.current;
+                if (!pos) return;
+                const { x, y } = screenToWorld(pos.clientX, pos.clientY);
+
+                const shapes = ['line', 'circle', 'polyline', 'arc', 'square', 'rectangle', 'parallelogram'];
+                if (isDrawing.current && shapes.includes(tool)) {
+                    if (tool === 'line' && shapeStartPoint.current) setCurrentStroke(getLinePoints(shapeStartPoint.current, { x, y, pressure: 0.5 }, strokeOpts));
+                    if (tool === 'circle' && shapeStartPoint.current) setCurrentStroke(getCirclePoints(shapeStartPoint.current, { x, y, pressure: 0.5 }, strokeOpts));
+                    if (tool === 'square' && shapeStartPoint.current) setCurrentStroke(getSquarePoints(shapeStartPoint.current, { x, y, pressure: 0.5 }, strokeOpts));
+                    if (tool === 'rectangle' && shapeStartPoint.current) setCurrentStroke(getRectanglePoints(shapeStartPoint.current, { x, y, pressure: 0.5 }, strokeOpts));
+                    if (tool === 'parallelogram' && shapeStartPoint.current) setCurrentStroke(getParallelogramPoints(shapeStartPoint.current, { x, y, pressure: 0.5 }, strokeOpts));
+                    if (tool === 'polyline') setCurrentStroke([...polylinePoints.current, { x, y, pressure: 0.5 }]);
+                    if (tool === 'arc') { /* ... */ }
+                    return;
+                }
+
+                if (isDrawing.current && tool === 'eraser' && eraserMode !== 'freehand') {
                     if (shapeStartPoint.current) {
                         const pts = [shapeStartPoint.current, { x, y, pressure: 0.5 }];
                         currentStrokePointsRef.current = pts;
                         setCurrentStroke(pts);
                     }
-                } else {
-                    const pointsToAdd: Point[] = [];
-                    coalesced.forEach(ce => {
-                        const { x: cx, y: cy } = screenToWorld(ce.clientX, ce.clientY);
-                        const mixedPressure = ce.pressure * (strokeOpts.pressureWeight ?? 1);
-                        pointsToAdd.push({ x: cx, y: cy, pressure: mixedPressure });
-                    });
-
-                    const currentTime = Date.now();
-                    lastDrawPoint.current = { x: clientX, y: clientY, time: currentTime };
-
-                    const currentPts = currentStrokePointsRef.current;
-                    pointsToAdd.forEach(p => {
-                        if (currentPts.length > 0) {
-                            const last = currentPts[currentPts.length - 1];
-                            const dist = Math.hypot(p.x - last.x, p.y - last.y);
-                            const throttle = strokeOpts.pointThrottle ?? 2;
-                            if (dist < throttle / camera.scale) return;
-                        }
-                        currentPts.push(p);
-                    });
-                    setCurrentStroke([...currentPts]);
+                    return;
                 }
-            }
-        });
+
+                if ((tool === 'lasso' || tool === 'move') && isDrawing.current) {
+                    setLassoPoints(prev => [...(prev || []), { x, y, pressure: 0.5 }]);
+                    return;
+                }
+
+                if ((tool === 'lasso' || tool === 'move') && selectedStrokeIds.length > 0 && strokeSelectionBounds) {
+                    const params = initialTransformParams.current;
+                    if (!params) return;
+
+                    if (transformMode === 'strokes-drag' || transformMode === 'strokes-move') {
+                        const dx = x - params.startX;
+                        const dy = y - params.startY;
+                        setTempStrokeTransform(prev => ({
+                            ...prev,
+                            x: (params.initialTx ?? 0) + dx,
+                            y: (params.initialTy ?? 0) + dy
+                        }));
+                        return;
+                    }
+
+                    const effCx = params.centerX + (tempStrokeTransform.x);
+                    const effCy = params.centerY + (tempStrokeTransform.y);
+
+                    if (transformMode === 'strokes-resize') {
+                        const currentDist = Math.hypot(x - effCx, y - effCy);
+                        const startDist = params.startDistance || 1;
+                        const scaleRatio = currentDist / startDist;
+                        const newScale = Math.max(0.1, (params.initialScale || 1) * scaleRatio);
+
+                        setTempStrokeTransform(prev => ({ ...prev, scale: newScale }));
+                        return;
+                    }
+
+                    if (transformMode === 'strokes-rotate') {
+                        const currentAngle = Math.atan2(y - effCy, x - effCx);
+                        const angleDiff = currentAngle - (params.startAngle || 0);
+                        const angleDeg = angleDiff * (180 / Math.PI);
+
+                        setTempStrokeTransform(prev => ({ ...prev, rotation: (params.initialRotation || 0) + angleDeg }));
+                        return;
+                    }
+                }
+
+                if ((tool === 'move' || isCropMode) && selectedId && transformMode) {
+                    const dx = pos.movementX / camera.scale;
+                    const dy = pos.movementY / camera.scale;
+                    if (selectedId) {
+                        const targetType = (latestImagesRef.current.find(i => i.id === selectedId) || activeImages.find(i => i.id === selectedId)) ? 'image' : 'text';
+                        if (targetType === 'image') {
+                            setImages(prev => {
+                                const updated = prev.map(i => {
+                                    if (i.id !== selectedId) return i;
+                                    if (transformMode === 'drag') return { ...i, x: i.x + dx, y: i.y + dy };
+                                    if (transformMode === 'resize') { const newW = Math.max(20, x - i.x); return { ...i, width: newW, height: newW * (i.height / i.width) }; }
+                                    if (transformMode === 'rotate') return { ...i, rotation: Math.atan2(y - (i.y + i.height / 2), x - (i.x + i.width / 2)) * (180 / Math.PI) + 90 };
+                                    return i;
+                                });
+                                latestImagesRef.current = updated;
+                                return updated;
+                            });
+                        } else {
+                            setTexts(prev => {
+                                const updated = prev.map(t => {
+                                    if (t.id !== selectedId) return t;
+                                    if (transformMode === 'drag') return { ...t, x: t.x + dx, y: t.y + dy };
+                                    if (transformMode === 'resize') return { ...t, width: Math.max(50, x - t.x), height: Math.max(50, y - t.y) };
+                                    if (transformMode === 'rotate') return { ...t, rotation: Math.atan2(y - (t.y + t.height / 2), x - (t.x + t.width / 2)) * (180 / Math.PI) + 90 };
+                                    return t;
+                                });
+                                latestTextsRef.current = updated;
+                                return updated;
+                            });
+                        }
+                    }
+                    return;
+                }
+            });
+        }
     };
 
     const handlePointerUp = async (e: React.PointerEvent) => {
@@ -732,7 +759,8 @@ export const useWhiteboardGestures = ({
             commitCameraState();
         }
 
-        if (rafRef.current) cancelAnimationFrame(rafRef.current);
+        drawRafActive.current = false;
+        gestureRafActive.current = false;
 
         if (activePointers.current.size === 0) {
             panStart.current = null;
@@ -823,6 +851,8 @@ export const useWhiteboardGestures = ({
 
         if (activePointers.current.size === 0) {
             isDrawing.current = false;
+            drawRafActive.current = false;
+            gestureRafActive.current = false;
             currentStrokePointsRef.current = [];
             setCurrentStroke(null);
             setLassoPoints(null);

@@ -546,17 +546,19 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
     }, [texts, pendingTexts, visibleLayerIds, activeKeyframeId, currentPageKeyframes, isTeacher]);
 
     const markerScales = useMemo(() => {
-        const scales = new Set<number>([0.1]);
+        const scales = new Set<number>();
         if (strokeOpts?.markerTextureScale) {
-            scales.add(Number(strokeOpts.markerTextureScale));
+            const curScale = Number(Number(strokeOpts.markerTextureScale).toFixed(2));
+            if (curScale !== 0.1) scales.add(curScale);
         }
-        activeStrokes.forEach(s => {
+        for (let i = 0; i < activeStrokes.length; i++) {
+            const s = activeStrokes[i];
             const opts = s.options as ExtendedStrokeOptions | undefined;
             if (s.type === 'marker' || opts?.isNaturalMarker) {
-                const scale = opts?.markerTextureScale !== undefined ? Number(opts.markerTextureScale) : 0.1;
-                scales.add(scale);
+                const scale = opts?.markerTextureScale !== undefined ? Number(Number(opts.markerTextureScale).toFixed(2)) : 0.1;
+                if (scale !== 0.1) scales.add(scale);
             }
-        });
+        }
         return Array.from(scales);
     }, [activeStrokes, strokeOpts?.markerTextureScale]);
 
@@ -993,16 +995,13 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
             return;
         }
 
-        // Simplificar puntos para descartar micro-jitter salvo si tiene textura o rugosidad (como lápiz)
-        const hasTextureOrJitter = !!(finalOptions?.roughness || finalOptions?.strokeWidthJitter);
-        const simplified = (isSharpTool || hasTextureOrJitter) ? points : simplifyPoints(points, 1.8);
-        const roundedPath = simplified.map(p => ({
+        const roundedPath = points.map(p => ({
             x: Math.round(p.x * 100) / 100,
             y: Math.round(p.y * 100) / 100,
             pressure: Math.round((p.pressure ?? 0.5) * 100) / 100
         }));
 
-        // Pre-calcular cachedPath para renderizado local inmediato en memoria
+        // Pre-calcular cachedPath para renderizado idéntico tanto en profesor como en estudiante
         let cachedPath = '';
         if (effectiveStroked) {
             if (isSharpTool) {
@@ -1034,12 +1033,11 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
             const docRef = doc(collection(db, 'whiteboardStrokes'));
             const strokeId = docRef.id;
 
-            // Omitir cachedPath de Firestore: ahorra ~85% de ancho de banda por trazo.
-            // Los clientes calculan y memoizan el SVG en <0.1ms en StaticStroke.
             const strokeData = {
                 points: roundedPath, color, size, opacity, timestamp: Date.now(),
                 boardId: activeBoardId, pageId: activePageId, layerId: activeLayerId, keyframeId: activeKeyframeId,
-                type: (tool === 'pen' ? 'pen' : 'eraser') as 'pen' | 'eraser', deleted: false, options: finalOptions
+                type: (tool === 'pen' ? 'pen' : 'eraser') as 'pen' | 'eraser', deleted: false, options: finalOptions,
+                cachedPath
             };
 
             const syncingStroke: WhiteboardStroke = {
@@ -1050,10 +1048,10 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
 
             setSyncingStrokes(prev => [...prev, syncingStroke]);
 
-            // Timeout de respaldo amplio (10s) para evitar parpadeos si la red tiene alta latencia
+            // Timeout de respaldo (2s) para evitar parpadeos si la red tiene latencia
             setTimeout(() => {
                 setSyncingStrokes(prev => prev.filter(s => s.id !== strokeId));
-            }, 10000);
+            }, 2000);
 
             await setDoc(docRef, strokeData);
             recordAction({ type: 'create', targetType: 'stroke', targetId: strokeId, data: strokeData });
@@ -1115,10 +1113,12 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
     const contentGroupRef = useRef<SVGGElement | null>(null);
 
     const handleCameraChangeDirect = useCallback((cam: { x: number, y: number, scale: number }) => {
+        cameraRef.current = cam;
         if (contentGroupRef.current) {
             contentGroupRef.current.setAttribute('transform', `translate(${cam.x}, ${cam.y}) scale(${cam.scale})`);
         }
-    }, []);
+        setCamera(cam);
+    }, [setCamera]);
 
     const handleCloseSidePanel = useCallback(() => setIsSidePanelOpen(false), []);
 
@@ -1195,7 +1195,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
         const effectiveStroked = isStroked || (tool !== 'eraser' && !effectiveFilled);
         const shouldUseLinearPath = isSharpTool;
         const isMarker = tool === 'pen' && strokeOpts.isNaturalMarker;
-        const currentMarkerScale = strokeOpts.markerTextureScale ?? 0.1;
+        const currentMarkerScale = Number(Number(strokeOpts.markerTextureScale ?? 0.1).toFixed(2));
 
         return (
             <g opacity={opacity} style={isMarker ? { mixBlendMode: 'multiply', filter: `url(#marker-texture-${currentMarkerScale})` } : undefined}>
@@ -1221,9 +1221,17 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                         (() => {
                             let liveSimulatePressure = drawStyle === 'ink';
                             if (strokeOpts.useStylusPressure !== false) {
-                                const uniquePressures = new Set(currentStroke.map(p => p.pressure).filter(p => p !== undefined && p !== 0.5 && p !== 1.0));
-                                if (uniquePressures.size > 1) {
-                                    liveSimulatePressure = false;
+                                let firstPressure: number | null = null;
+                                for (let i = 0; i < currentStroke.length; i++) {
+                                    const pr = currentStroke[i].pressure;
+                                    if (pr !== undefined && pr !== 0.5 && pr !== 1.0) {
+                                        if (firstPressure === null) {
+                                            firstPressure = pr;
+                                        } else if (Math.abs(pr - firstPressure) > 0.01) {
+                                            liveSimulatePressure = false;
+                                            break;
+                                        }
+                                    }
                                 }
                             }
                             return (
@@ -1626,28 +1634,67 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
         const node = svgRef.current;
         if (!node) return;
 
+        let wheelRafId: number | null = null;
+        let pendingWheelCamera: { x: number, y: number, scale: number } | null = null;
+
         const wheelHandler = (ev: WheelEvent) => {
-            // preventDefault must be allowed (listener added with passive: false)
             try { ev.preventDefault(); } catch (e) { /* ignore */ }
             if (isNavLocked) return;
 
-            const delta = ev.deltaY;
-            const zoomIntensity = 0.0016;
-            const cur = cameraRef.current;
-            const newScale = Math.min(10, Math.max(0.1, cur.scale * Math.exp(-delta * zoomIntensity)));
+            const rect = node.getBoundingClientRect();
+            const mouseX = ev.clientX - rect.left;
+            const mouseY = ev.clientY - rect.top;
 
-            const clientX = ev.clientX;
-            const clientY = ev.clientY;
-            const worldX = (clientX - cur.x) / cur.scale;
-            const worldY = (clientY - cur.y) / cur.scale;
+            const cur = pendingWheelCamera || cameraRef.current;
 
-            const newX = clientX - worldX * newScale;
-            const newY = clientY - worldY * newScale;
-            setCamera({ x: newX, y: newY, scale: newScale });
+            // Detectar trackpad pan (desplazamiento con dos dedos sin ctrlKey) vs zoom
+            const isPinchZoom = ev.ctrlKey || ev.metaKey;
+            const isMouseWheel = ev.deltaMode !== 0 || Math.abs(ev.deltaY) >= 40;
+
+            if (!isPinchZoom && !isMouseWheel && (Math.abs(ev.deltaX) > 0 || Math.abs(ev.deltaY) < 40)) {
+                // Two-finger trackpad panning fluido
+                const newX = cur.x - ev.deltaX;
+                const newY = cur.y - ev.deltaY;
+                pendingWheelCamera = { x: newX, y: newY, scale: cur.scale };
+            } else {
+                // Zooming (rueda de ratón, Ctrl+Wheel o pellizco en trackpad)
+                const delta = ev.deltaY;
+                const zoomIntensity = isPinchZoom ? 0.006 : 0.0015;
+                const zoomFactor = Math.exp(-delta * zoomIntensity);
+                const newScale = Math.min(10, Math.max(0.1, cur.scale * zoomFactor));
+
+                // Zoom anclado exactamente en la posición del puntero dentro del SVG
+                const worldX = (mouseX - cur.x) / cur.scale;
+                const worldY = (mouseY - cur.y) / cur.scale;
+
+                const newX = mouseX - worldX * newScale;
+                const newY = mouseY - worldY * newScale;
+                pendingWheelCamera = { x: newX, y: newY, scale: newScale };
+            }
+
+            cameraRef.current = pendingWheelCamera;
+
+            // Aplicar inmediatamente al elemento SVG para respuesta a 60/120 FPS sin lag
+            if (contentGroupRef.current && pendingWheelCamera) {
+                contentGroupRef.current.setAttribute('transform', `translate(${pendingWheelCamera.x}, ${pendingWheelCamera.y}) scale(${pendingWheelCamera.scale})`);
+            }
+
+            if (!wheelRafId) {
+                wheelRafId = requestAnimationFrame(() => {
+                    wheelRafId = null;
+                    if (pendingWheelCamera) {
+                        setCamera(pendingWheelCamera);
+                        pendingWheelCamera = null;
+                    }
+                });
+            }
         };
 
         node.addEventListener('wheel', wheelHandler, { passive: false });
-        return () => node.removeEventListener('wheel', wheelHandler as EventListener);
+        return () => {
+            if (wheelRafId) cancelAnimationFrame(wheelRafId);
+            node.removeEventListener('wheel', wheelHandler as EventListener);
+        };
     }, [svgRef, isNavLocked, setCamera]);
 
     const handleAddText = async (x: number, y: number) => {
@@ -2042,20 +2089,18 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                         ref={contentGroupRef}
                         transform={contentTransform}
                         style={{
-                            willChange: isInteracting ? 'transform' : 'auto',
                             pointerEvents: isInteracting && (tool === 'hand' || !isTeacher) ? 'none' : 'auto'
                         }}
-                        shapeRendering={isInteracting ? 'optimizeSpeed' : 'geometricPrecision'}
                     >
-                        {/* Static Graphics (Background, Grid, BoardLayers) isolated in a GPU compositor layer */}
-                        <g style={{ willChange: 'transform' }}>
+                        {/* Static Graphics (Background, Grid, BoardLayers) */}
+                        <g>
                             <g filter="url(#shadow)"><rect x="0" y="0" width={boardSettings.width || 1920} height={boardSettings.height || 1080} fill={boardSettings.bgColor} />{boardSettings.bgImageUrl && <image href={boardSettings.bgImageUrl} x="0" y="0" width={boardSettings.width || 1920} height={boardSettings.height || 1080} preserveAspectRatio="xMidYMid slice" onDragStart={(e) => e.preventDefault()} style={{ pointerEvents: 'none' }} />}</g>
 
                             {shouldRenderGrid && (
                                 <g pointerEvents="none">
-                                    <rect width="100000" height="100000" x="-50000" y="-50000" fill="url(#grid-minor)" />
-                                    <rect width="100000" height="100000" x="-50000" y="-50000" fill="url(#grid-medium)" />
-                                    <rect width="100000" height="100000" x="-50000" y="-50000" fill="url(#grid-major)" />
+                                    <rect width={Math.max(12000, (boardSettings.width || 1920) * 4)} height={Math.max(12000, (boardSettings.height || 1080) * 4)} x={-Math.max(5000, (boardSettings.width || 1920))} y={-Math.max(5000, (boardSettings.height || 1080))} fill="url(#grid-minor)" />
+                                    <rect width={Math.max(12000, (boardSettings.width || 1920) * 4)} height={Math.max(12000, (boardSettings.height || 1080) * 4)} x={-Math.max(5000, (boardSettings.width || 1920))} y={-Math.max(5000, (boardSettings.height || 1080))} fill="url(#grid-medium)" />
+                                    <rect width={Math.max(12000, (boardSettings.width || 1920) * 4)} height={Math.max(12000, (boardSettings.height || 1080) * 4)} x={-Math.max(5000, (boardSettings.width || 1920))} y={-Math.max(5000, (boardSettings.height || 1080))} fill="url(#grid-major)" />
                                 </g>
                             )}
 
@@ -2087,11 +2132,19 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                             </g>
                         )}
 
-                        {/* Active drawing stroke isolated in a GPU compositor layer */}
-                        <g style={{ willChange: 'transform' }}>
+                        {/* Active drawing stroke */}
+                        <g>
                             {renderCurrentStroke()}
                         </g>
-                        {lassoPoints && isTeacher && <path d={getSvgPathFromStroke(getStroke(lassoPoints, { size: 2 / camera.scale, thinning: 0, smoothing: 0, streamline: 0, simulatePressure: false }))} fill="rgba(59, 130, 246, 0.2)" stroke="var(--color-primary)" strokeWidth={2 / camera.scale} strokeDasharray="4 4" />}
+                        {lassoPoints && isTeacher && (
+                            <path
+                                d={getSvgPathFromStroke(getStroke(lassoPoints, { size: 2 / camera.scale, thinning: 0, smoothing: 0, streamline: 0, simulatePressure: false }))}
+                                fill="rgba(59, 130, 246, 0.2)"
+                                stroke="var(--color-primary)"
+                                strokeWidth={2 / camera.scale}
+                                strokeDasharray="4 4"
+                            />
+                        )}
                     </g>
                 </svg>
 

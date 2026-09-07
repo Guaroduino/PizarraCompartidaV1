@@ -50,33 +50,55 @@ export const BoardLayers = React.memo((props: BoardLayersProps) => {
         (layers.length > 0 ? [...layers].sort((a, b) => a.order - b.order) : [{ id: 'loading', visible: true, order: 0, opacity: 1 }]),
         [layers]);
 
-    // PRE-CALCULATE LAYER CONTENT
+    // PRE-CALCULATE LAYER CONTENT (Single O(N) partitioning pass)
     const layerData = useMemo(() => {
+        const selectedSet = new Set(selectedStrokeIds);
+        const strokesByLayer = new Map<string, { staticStrokes: WhiteboardStroke[], transformingStrokes: WhiteboardStroke[] }>();
+        const imagesByLayer = new Map<string, WhiteboardImage[]>();
+        const textsByLayer = new Map<string, ExtendedWhiteboardText[]>();
+
+        sortedLayers.forEach(l => {
+            strokesByLayer.set(l.id, { staticStrokes: [], transformingStrokes: [] });
+            imagesByLayer.set(l.id, []);
+            textsByLayer.set(l.id, []);
+        });
+
+        const defaultLayerId = sortedLayers.find(l => l.order === 0)?.id || sortedLayers[0]?.id || '';
+
+        for (let i = 0; i < activeStrokes.length; i++) {
+            const s = activeStrokes[i];
+            const targetId = s.layerId && strokesByLayer.has(s.layerId) ? s.layerId : defaultLayerId;
+            const group = strokesByLayer.get(targetId);
+            if (group) {
+                if (selectedSet.has(s.id)) {
+                    group.transformingStrokes.push(s);
+                } else {
+                    group.staticStrokes.push(s);
+                }
+            }
+        }
+
+        for (let i = 0; i < localImages.length; i++) {
+            const img = localImages[i];
+            const targetId = img.layerId && imagesByLayer.has(img.layerId) ? img.layerId : defaultLayerId;
+            imagesByLayer.get(targetId)?.push(img);
+        }
+
+        for (let i = 0; i < localTexts.length; i++) {
+            const txt = localTexts[i];
+            const targetId = txt.layerId && textsByLayer.has(txt.layerId) ? txt.layerId : defaultLayerId;
+            textsByLayer.get(targetId)?.push(txt);
+        }
+
         return sortedLayers.map(layer => {
             if (!layer.visible) return null;
-
-            const staticStrokes = activeStrokes
-                .filter(s => !selectedStrokeIds.includes(s.id) && (s.layerId === layer.id || (!s.layerId && layer.order === 0)))
-                .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-
-            const transformingStrokes = activeStrokes
-                .filter(s => selectedStrokeIds.includes(s.id) && (s.layerId === layer.id || (!s.layerId && layer.order === 0)))
-                .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-
-            const images = localImages
-                .filter(i => i.layerId === layer.id || (!i.layerId && layer.order === 0))
-                .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-
-            const texts = localTexts
-                .filter(t => t.layerId === layer.id || (!t.layerId && layer.order === 0))
-                .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-
+            const strokesGroup = strokesByLayer.get(layer.id) || { staticStrokes: [], transformingStrokes: [] };
             return {
                 layer,
-                staticStrokes,
-                transformingStrokes,
-                images,
-                texts
+                staticStrokes: strokesGroup.staticStrokes,
+                transformingStrokes: strokesGroup.transformingStrokes,
+                images: imagesByLayer.get(layer.id) || [],
+                texts: textsByLayer.get(layer.id) || []
             };
         });
     }, [sortedLayers, activeStrokes, selectedStrokeIds, localImages, localTexts]);
