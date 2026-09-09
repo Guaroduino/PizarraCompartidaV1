@@ -19,10 +19,13 @@ import { useWhiteboardSelection } from '../hooks/useWhiteboardSelection';
 import { useWhiteboardGestures } from '../hooks/useWhiteboardGestures';
 import ConfirmModal from './ConfirmModal';
 import { IconUndo, IconRedo, IconDeviceFloppy, IconHand, IconArrowsExpand, IconPlus, IconX, IconTrash, IconClipboardCopy, IconLayers, IconCrop, IconClipboard, IconArrowLeft, IconChevronUp, IconChevronDown, IconDownload, IconUpload, IconLockClosed, IconLockOpen, IconCloud, IconCloudOff, IconDashboard, IconLibrary, IconSwitchLocation, IconGroup, IconUngroup, IconCheck, IconBook, IconSidebar, IconPencil } from './Icons';
-import type { ExtendedStrokeOptions, ExtendedWhiteboardText, ToolType, ToolPreset, DrawStyle, ShapeStyle } from '../types/whiteboardTypes';
+import type { ExtendedStrokeOptions, ExtendedWhiteboardText, ToolType, ToolPreset, DrawStyle, ShapeStyle, WhiteboardAction } from '../types/whiteboardTypes';
 import { QuickLibraryBar } from './whiteboard/library/QuickLibraryBar';
 import { LibraryManager } from './whiteboard/library/LibraryManager';
 import { ClassLibraryManager } from './whiteboard/library/ClassLibraryManager';
+import { BoardTabs } from './whiteboard/ui/BoardTabs';
+import { SlideCarousel } from './whiteboard/ui/SlideCarousel';
+import { ActiveStrokeLayer } from './whiteboard/ui/ActiveStrokeLayer';
 import { normalizeItems, generateThumbnailSvg } from '../utils/libraryUtils';
 import TeacherSidePanel from './TeacherSidePanel';
 
@@ -85,6 +88,8 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
     const [showLayers, setShowLayers] = useState(false);
     const [showSettings, setShowSettings] = useState(false);
     const [camera, setCamera] = useState({ x: 0, y: 0, scale: 0.8 });
+    const cameraRef = useRef(camera);
+    useEffect(() => { cameraRef.current = camera; }, [camera]);
     const [dimensions, setDimensions] = useState({ width: window.innerWidth, height: window.innerHeight });
 
     // Eraser configuration states
@@ -700,6 +705,17 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
         }
     }, [lockedLayerIds, selectedId, selectedStrokeIds, activeImages, activeTexts, activeStrokes, setSelectedId, setTransformMode, setSelectedStrokeIds, setStrokeSelectionBounds]);
 
+    // Limpieza de memoria e historial al cambiar de diapositiva o pizarra
+    useEffect(() => {
+        clearHistory();
+        setPendingStrokes([]);
+        setSyncingStrokes([]);
+        setPendingImages([]);
+        setPendingTexts([]);
+        setSelectedStrokeIds([]);
+        setSelectedId(null);
+    }, [activePageId, activeBoardId, clearHistory, setSelectedStrokeIds, setSelectedId]);
+
     const screenToWorld = useCallback((clientX: number, clientY: number) => {
         if (!svgRef.current) return { x: 0, y: 0 };
         const ctm = svgRef.current.getScreenCTM();
@@ -709,8 +725,9 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
         pt.x = clientX;
         pt.y = clientY;
         const globalPoint = pt.matrixTransform(ctm.inverse());
-        return { x: (globalPoint.x - camera.x) / camera.scale, y: (globalPoint.y - camera.y) / camera.scale };
-    }, [camera]);
+        const cam = cameraRef.current;
+        return { x: (globalPoint.x - cam.x) / cam.scale, y: (globalPoint.y - cam.y) / cam.scale };
+    }, []);
 
     const isShapeTool = ['line', 'polyline', 'circle', 'arc', 'square', 'rectangle', 'parallelogram'].includes(tool);
     // Include all geometric tools in isSharpTool to enforce constant width
@@ -811,27 +828,33 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
             if (eraserMode === 'freehand' && points.length > 0) {
                 const baseEraserRadius = Math.max(8, (size + 10) / camera.scale);
 
+                // Pre-calcular bounding box del borrador una sola vez
+                let eMinX = Infinity, eMinY = Infinity, eMaxX = -Infinity, eMaxY = -Infinity;
+                for (let i = 0; i < points.length; i++) {
+                    const p = points[i];
+                    if (p.x < eMinX) eMinX = p.x;
+                    if (p.y < eMinY) eMinY = p.y;
+                    if (p.x > eMaxX) eMaxX = p.x;
+                    if (p.y > eMaxY) eMaxY = p.y;
+                }
+
+                // Simplificar puntos del borrador para reducir dramáticamente los cálculos de intersección
+                const simplifiedEraser = simplifyPoints(points, 3);
+
                 if (canEraseStrokes) {
                     strokesScope.forEach(s => {
                         const hitRadius = baseEraserRadius + (s.size || 4) / 2;
                         const hitRadiusSq = hitRadius * hitRadius;
 
-                        // Fast bounding box check
+                        // Fast bounding box check del trazo
                         let sMinX = Infinity, sMinY = Infinity, sMaxX = -Infinity, sMaxY = -Infinity;
-                        s.points.forEach(p => {
+                        for (let i = 0; i < s.points.length; i++) {
+                            const p = s.points[i];
                             if (p.x < sMinX) sMinX = p.x;
                             if (p.y < sMinY) sMinY = p.y;
                             if (p.x > sMaxX) sMaxX = p.x;
                             if (p.y > sMaxY) sMaxY = p.y;
-                        });
-
-                        let eMinX = Infinity, eMinY = Infinity, eMaxX = -Infinity, eMaxY = -Infinity;
-                        points.forEach(p => {
-                            if (p.x < eMinX) eMinX = p.x;
-                            if (p.y < eMinY) eMinY = p.y;
-                            if (p.x > eMaxX) eMaxX = p.x;
-                            if (p.y > eMaxY) eMaxY = p.y;
-                        });
+                        }
 
                         if (eMaxX + hitRadius < sMinX || eMinX - hitRadius > sMaxX ||
                             eMaxY + hitRadius < sMinY || eMinY - hitRadius > sMaxY) {
@@ -839,8 +862,8 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                         }
 
                         let hit = false;
-                        if (points.length === 1) {
-                            const ep = points[0];
+                        if (simplifiedEraser.length === 1) {
+                            const ep = simplifiedEraser[0];
                             if (s.points.length === 1) {
                                 hit = distSq(ep.x, ep.y, s.points[0].x, s.points[0].y) <= hitRadiusSq;
                             } else {
@@ -852,10 +875,10 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                                 }
                             }
                         } else {
-                            // Compare each eraser segment against stroke segments
-                            for (let j = 0; j < points.length - 1 && !hit; j++) {
-                                const ep1 = points[j];
-                                const ep2 = points[j + 1];
+                            // Compare each simplified eraser segment against stroke segments
+                            for (let j = 0; j < simplifiedEraser.length - 1 && !hit; j++) {
+                                const ep1 = simplifiedEraser[j];
+                                const ep2 = simplifiedEraser[j + 1];
 
                                 if (s.points.length === 1) {
                                     if (distToSegmentSq(s.points[0].x, s.points[0].y, ep1.x, ep1.y, ep2.x, ep2.y) <= hitRadiusSq) {
@@ -995,7 +1018,8 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
             return;
         }
 
-        const roundedPath = points.map(p => ({
+        const simplifiedPoints = (tool === 'pen' && !isSharpTool) ? simplifyPoints(points, 1.5) : points;
+        const roundedPath = simplifiedPoints.map(p => ({
             x: Math.round(p.x * 100) / 100,
             y: Math.round(p.y * 100) / 100,
             pressure: Math.round((p.pressure ?? 0.5) * 100) / 100
@@ -1117,8 +1141,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
         if (contentGroupRef.current) {
             contentGroupRef.current.setAttribute('transform', `translate(${cam.x}, ${cam.y}) scale(${cam.scale})`);
         }
-        setCamera(cam);
-    }, [setCamera]);
+    }, []);
 
     const handleCloseSidePanel = useCallback(() => setIsSidePanelOpen(false), []);
 
@@ -1148,106 +1171,7 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
 
     // ...
 
-    // Helper function to render current drawing stroke properly
-    const renderCurrentStroke = () => {
-        if (!currentStroke || !isTeacher || lassoPoints) return null;
 
-        if (tool === 'eraser') {
-            if (eraserMode === 'rect' && currentStroke.length > 1) {
-                const start = currentStroke[0];
-                const end = currentStroke[currentStroke.length - 1];
-                const minX = Math.min(start.x, end.x);
-                const minY = Math.min(start.y, end.y);
-                const width = Math.abs(start.x - end.x);
-                const height = Math.abs(start.y - end.y);
-                return (
-                    <rect
-                        x={minX}
-                        y={minY}
-                        width={width}
-                        height={height}
-                        fill="rgba(239, 68, 68, 0.15)"
-                        stroke="rgba(239, 68, 68, 0.8)"
-                        strokeWidth={2 / camera.scale}
-                        strokeDasharray="4 4"
-                    />
-                );
-            }
-            if (eraserMode === 'circle' && currentStroke.length > 1) {
-                const start = currentStroke[0];
-                const end = currentStroke[currentStroke.length - 1];
-                const radius = Math.hypot(end.x - start.x, end.y - start.y);
-                return (
-                    <circle
-                        cx={start.x}
-                        cy={start.y}
-                        r={radius}
-                        fill="rgba(239, 68, 68, 0.15)"
-                        stroke="rgba(239, 68, 68, 0.8)"
-                        strokeWidth={2 / camera.scale}
-                        strokeDasharray="4 4"
-                    />
-                );
-            }
-        }
-
-        const effectiveFilled = isFilled;
-        const effectiveStroked = isStroked || (tool !== 'eraser' && !effectiveFilled);
-        const shouldUseLinearPath = isSharpTool;
-        const isMarker = tool === 'pen' && strokeOpts.isNaturalMarker;
-        const currentMarkerScale = Number(Number(strokeOpts.markerTextureScale ?? 0.1).toFixed(2));
-
-        return (
-            <g opacity={opacity} style={isMarker ? { mixBlendMode: 'multiply', filter: `url(#marker-texture-${currentMarkerScale})` } : undefined}>
-                {effectiveFilled && (
-                    <path
-                        d={getSimplePolygonPath(currentStroke)}
-                        fill={fillColor}
-                        stroke="none"
-                    />
-                )}
-
-                {effectiveStroked && (
-                    shouldUseLinearPath ? (
-                        <path
-                            d={getStrokePath(currentStroke)}
-                            fill="none"
-                            stroke={color}
-                            strokeWidth={size}
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                        />
-                    ) : (
-                        (() => {
-                            let liveSimulatePressure = drawStyle === 'ink';
-                            if (strokeOpts.useStylusPressure !== false) {
-                                let firstPressure: number | null = null;
-                                for (let i = 0; i < currentStroke.length; i++) {
-                                    const pr = currentStroke[i].pressure;
-                                    if (pr !== undefined && pr !== 0.5 && pr !== 1.0) {
-                                        if (firstPressure === null) {
-                                            firstPressure = pr;
-                                        } else if (Math.abs(pr - firstPressure) > 0.01) {
-                                            liveSimulatePressure = false;
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                            return (
-                                <path
-                                    d={getSvgPathFromStroke(getStroke(currentStroke, { size, ...strokeOpts, simulatePressure: liveSimulatePressure }))}
-                                    fill={tool === 'eraser' ? 'rgba(239, 68, 68, 0.4)' : color}
-                                    fillOpacity={tool === 'eraser' ? 0.4 : 1}
-                                    className={tool === 'eraser' ? 'animate-pulse' : ''}
-                                />
-                            );
-                        })()
-                    )
-                )}
-            </g>
-        );
-    };
 
     // ... (Rest of component functions: processLibraryImport, handleSaveToLibrary, etc. - keeping existing) ...
     const processLibraryImport = async (processedBlob: Blob) => {
@@ -1625,9 +1549,6 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
         setCamera({ scale: newScale, x: (dimensions.width - boardSettings.width * newScale) / 2, y: (dimensions.height - boardSettings.height * newScale) / 2 });
     }, [dimensions.width, dimensions.height, boardSettings.width, boardSettings.height]);
 
-    // Use a ref to always read latest camera inside native wheel handler
-    const cameraRef = useRef(camera);
-    useEffect(() => { cameraRef.current = camera; }, [camera]);
 
     // Attach a native wheel listener with passive: false to allow preventDefault
     useEffect(() => {
@@ -1898,69 +1819,25 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
             )}
 
             {showBoardTabs && (isTeacher || !syncEnabled) && (
-                <div className="flex-none h-12 bg-gray-200 dark:bg-gray-800 flex items-center px-2 border-b border-gray-300 dark:border-gray-700 rounded-t-2xl justify-between">
-                    <div className="flex items-center gap-1 overflow-x-auto flex-1 pr-4 no-scrollbar">
-                        {sortedBoards.map((board, idx) => (
-                            <div
-                                key={board.id}
-                                draggable={isTeacher}
-                                onDragStart={(e) => { if (isTeacher && board.id) handleDragStartBoard(e, board.id); }}
-                                onDragOver={(e) => { if (isTeacher) handleDragOverBoard(e); }}
-                                onDrop={(e) => { if (isTeacher) handleDropOnIndex(e, idx); }}
-                                onClick={() => setActiveBoardId(board.id)}
-                                className={`group flex items-center gap-2 px-3 py-1.5 rounded-t-lg cursor-pointer text-xs font-bold transition-all select-none min-w-[120px] max-w-[350px] h-full border-b-2 ${activeBoardId === board.id ? 'bg-white dark:bg-black text-primary border-primary' : 'bg-transparent text-gray-500 hover:bg-gray-300 dark:hover:bg-gray-700 hover:text-gray-700 border-transparent'}`}
-                            >
-                                <span className="truncate flex-grow" title={board.name}>{board.name}</span>
-
-                                {/* Acciones flotantes que aparecen al hacer hover (teacher only) */}
-                                {isTeacher && (
-                                    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                                        <button onClick={(e) => { e.stopPropagation(); addBoardAtIndex(idx); }} className="p-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400" title="Agregar antes"><IconPlus className="w-3 h-3" /></button>
-                                        <button onClick={(e) => { e.stopPropagation(); addBoardAtIndex(idx + 1); }} className="p-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400" title="Agregar despuÃ©s"><IconPlus className="w-3 h-3" /></button>
-                                        
-                                        {activeBoardId === board.id && (
-                                            <>
-                                                <button onClick={(e) => { e.stopPropagation(); handleRenameBoard(board.id, board.name); }} className="p-1 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/40 text-gray-400 hover:text-blue-500" title="Renombrar"><IconPencil className="w-3 h-3" /></button>
-                                                <button onClick={(e) => { e.stopPropagation(); exportBoard(board.id); }} className="p-1 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/40 text-gray-400 hover:text-blue-500" title="Descargar"><IconDownload className="w-3 h-3" /></button>
-                                                <button onClick={(e) => { e.stopPropagation(); handleSaveBoardAsClass(); }} className="p-1 rounded-md hover:bg-green-100 dark:hover:bg-green-900/40 text-gray-400 hover:text-green-500" title="Guardar en LibrerÃ­a"><IconBook className="w-3 h-3" /></button>
-                                                {sortedBoards.length > 1 && (
-                                                    <button onClick={(e) => { e.stopPropagation(); handleDeleteBoard(board.id); }} className="p-1 rounded-md hover:bg-red-100 dark:hover:bg-red-900/40 text-gray-400 hover:text-red-500" title="Borrar"><IconX className="w-3 h-3" /></button>
-                                                )}
-                                            </>
-                                        )}
-                                    </div>
-                                )}
-                            </div>
-                        ))}
-                    </div>
-
-                    <div className="flex items-center gap-1 flex-shrink-0 bg-gray-200 dark:bg-gray-800 pl-2 shadow-[-10px_0_10px_-5px_rgba(0,0,0,0.1)] dark:shadow-none z-10">
-                        {isTeacher && (
-                            <>
-                                <button onClick={() => { const name = prompt("Nombre de la nueva clase:"); if (name) createBoard(name); }} className="p-2 text-gray-500 hover:text-primary hover:bg-gray-300 dark:hover:bg-gray-700 rounded-lg transition-colors" title="Nueva Clase"><IconPlus className="w-4 h-4" /></button>
-                                <label className="p-2 text-gray-500 hover:text-green-500 hover:bg-gray-300 dark:hover:bg-gray-700 rounded-lg transition-colors cursor-pointer" title="Cargar (.json)"><IconUpload className="w-4 h-4" /><input ref={importInputRef} type="file" accept=".json" className="hidden" onChange={(e) => { if (e.target.files?.[0]) importBoard(e.target.files[0]); if (importInputRef.current) importInputRef.current.value = ''; }} /></label>
-                                <button onClick={() => setShowClassLibraryManager(true)} className="p-2 text-gray-500 hover:text-blue-500 hover:bg-gray-300 dark:hover:bg-gray-700 rounded-lg transition-colors" title="LibrerÃ­a de Clases"><IconBook className="w-4 h-4" /></button>
-                                <div className="w-px h-6 bg-gray-300 dark:bg-gray-700 mx-1"></div>
-                            </>
-                        )}
-                        <div className="flex items-center gap-2">
-                            <div className="flex flex-col items-end">
-                                <span className="text-[9px] font-black uppercase text-gray-400 tracking-wider leading-none mb-0.5">SalÃ³n</span>
-                                <span className="font-bold text-gray-700 dark:text-gray-200 truncate max-w-[150px] text-sm leading-none" title={courseTitle}>
-                                    {courseTitle || '...'}
-                                </span>
-                            </div>
-                            {courseCode && isTeacher && (
-                                <div className="flex flex-col items-end border-l border-gray-300 dark:border-gray-600 pl-2">
-                                    <span className="text-[9px] font-black uppercase text-gray-400 tracking-wider leading-none mb-0.5">CÃ³digo</span>
-                                    <span className="font-mono font-bold text-primary text-sm leading-none select-all cursor-pointer hover:scale-105 transition-transform" title="Copiar cÃ³digo" onClick={() => navigator.clipboard.writeText(courseCode)}>
-                                        {courseCode}
-                                    </span>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </div>
+                <BoardTabs
+                    sortedBoards={sortedBoards}
+                    activeBoardId={activeBoardId}
+                    isTeacher={isTeacher}
+                    courseTitle={courseTitle}
+                    courseCode={courseCode}
+                    onSelectBoard={setActiveBoardId}
+                    onDragStartBoard={handleDragStartBoard}
+                    onDragOverBoard={handleDragOverBoard}
+                    onDropOnIndex={handleDropOnIndex}
+                    onAddBoardAtIndex={addBoardAtIndex}
+                    onRenameBoard={handleRenameBoard}
+                    onExportBoard={exportBoard}
+                    onSaveBoardAsClass={handleSaveBoardAsClass}
+                    onDeleteBoard={handleDeleteBoard}
+                    onCreateBoard={() => { const name = prompt("Nombre de la nueva clase:"); if (name) createBoard(name); }}
+                    onImportBoard={(file) => importBoard(file)}
+                    onOpenClassLibrary={() => setShowClassLibraryManager(true)}
+                />
             )}
 
             <div id="whiteboard-canvas-container" className={`flex-grow relative overflow-hidden bg-[#2a2a2a] ${!isTeacher && isInteracting ? 'cursor-grabbing' : (!isTeacher ? 'cursor-grab' : '')}`}>
@@ -2133,9 +2010,23 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                         )}
 
                         {/* Active drawing stroke */}
-                        <g>
-                            {renderCurrentStroke()}
-                        </g>
+                        <ActiveStrokeLayer
+                            currentStroke={currentStroke}
+                            isTeacher={isTeacher}
+                            lassoPoints={lassoPoints}
+                            tool={tool}
+                            eraserMode={eraserMode}
+                            cameraScale={camera.scale}
+                            isFilled={isFilled}
+                            isStroked={isStroked}
+                            isSharpTool={isSharpTool}
+                            fillColor={fillColor}
+                            color={color}
+                            size={size}
+                            opacity={opacity}
+                            strokeOpts={strokeOpts}
+                            drawStyle={drawStyle}
+                        />
                         {lassoPoints && isTeacher && (
                             <path
                                 d={getSvgPathFromStroke(getStroke(lassoPoints, { size: 2 / camera.scale, thinning: 0, smoothing: 0, streamline: 0, simulatePressure: false }))}
@@ -2373,51 +2264,22 @@ const WhiteboardModule: React.FC<WhiteboardModuleProps> = ({ user, isGuestMode, 
                     className={`absolute bottom-0 left-0 h-16 bg-white/90 dark:bg-gray-900/90 backdrop-blur-md border-t border-gray-200 dark:border-gray-700 grid grid-cols-2 divide-x divide-gray-200 dark:divide-gray-700 z-50 transition-all duration-300 ${(isTeacher || !syncEnabled) ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
                     style={{ right: isSidePanelOpen ? '320px' : '0' }}
                 >
-                    <div className="flex items-center gap-2 px-2 overflow-hidden w-full h-full min-w-0">
-                        <span className="text-[10px] font-black uppercase text-gray-400 tracking-widest hidden sm:block flex-shrink-0">Pizarras</span>
-                        <button onClick={() => { const idx = pages.findIndex(p => p.id === activePageId); if (idx > 0) setActivePageId(pages[idx - 1].id); }} disabled={pages.length === 0 || pages[0].id === activePageId} className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-800 rounded-lg text-gray-500 disabled:opacity-30 disabled:hover:bg-transparent flex-shrink-0" title="Pizarra Anterior"><IconChevronUp className="w-5 h-5 -rotate-90" /></button>
-                        <div className="flex-1 overflow-x-auto flex gap-2 py-2 scrollbar-hide items-center min-w-0" ref={pagesListRef}>
-                            {pages.map((page, idx) => (
-                                <div
-                                    key={page.id}
-                                    data-page-id={page.id}
-                                    onClick={() => setActivePageId(page.id)}
-                                    draggable={isTeacher}
-                                    onDragStart={(e) => { if (isTeacher) handleDragStartPage(e, page.id); }}
-                                    onDragOver={(e) => { if (isTeacher) handleDragOverPage(e); }}
-                                    onDrop={(e) => { if (isTeacher) handleDropOnPageIndex(e, idx); }}
-                                    onDragEnd={() => { draggedPageIdRef.current = null; }}
-                                    className={`group relative flex-shrink-0 w-20 h-10 rounded-lg border-2 cursor-pointer transition-all flex items-center justify-center bg-white dark:bg-black ${activePageId === page.id ? 'border-primary ring-2 ring-primary/30' : 'border-gray-300 dark:border-gray-600 hover:border-gray-400'}`}
-                                >
-                                    <span className={`text-xs font-bold ${activePageId === page.id ? 'text-primary' : 'text-gray-500'}`}>{idx + 1}</span>
-
-                                    {/* Add-before / Add-after buttons for teachers */}
-                                    {isTeacher && (
-                                        <>
-                                            <button onClick={(e) => { e.stopPropagation(); addPageAtIndex(idx); }} title="Agregar antes" className="absolute -left-3 top-1/2 -translate-y-1/2 bg-white dark:bg-gray-800 border rounded-full p-0.5 shadow text-gray-500 hover:text-primary hover:scale-110"><IconPlus className="w-3 h-3" /></button>
-                                            <button onClick={(e) => { e.stopPropagation(); addPageAtIndex(idx + 1); }} title="Agregar despuÃ©s" className="absolute -right-3 top-1/2 -translate-y-1/2 bg-white dark:bg-gray-800 border rounded-full p-0.5 shadow text-gray-500 hover:text-primary hover:scale-110"><IconPlus className="w-3 h-3" /></button>
-                                        </>
-                                    )}
-
-                                    {/* Save to library (top-left) - only show when page is active */}
-                                    {isTeacher && activePageId === page.id && (
-                                        <button onClick={(e) => { e.stopPropagation(); handleSavePageToLibrary(page.id); }} title="Guardar diapositiva en librerÃ­a" className="absolute -top-2 -left-2 bg-white dark:bg-gray-800 border rounded-full p-0.5 shadow text-purple-600 hover:text-purple-800 z-10 transition-transform hover:scale-110"><IconLibrary className="w-3 h-3" /></button>
-                                    )}
-
-                                    {/* Download as JPG (bottom-right) - only show when page is active */}
-                                    {isTeacher && activePageId === page.id && (
-                                        <button onClick={(e) => { e.stopPropagation(); handleDownloadPageAsJpeg(page.id); }} title="Descargar como JPG" className="absolute -bottom-2 -right-2 bg-white dark:bg-gray-800 border rounded-full p-0.5 shadow text-gray-600 hover:text-primary z-10 transition-transform hover:scale-110"><IconDownload className="w-3 h-3" /></button>
-                                    )}
-
-                                    {isTeacher && activePageId === page.id && pages.length > 1 && (
-                                        <button onClick={(e) => { e.stopPropagation(); deletePage(page.id); }} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5 shadow-md hover:bg-red-600 z-10 transition-transform hover:scale-110"><IconX className="w-3 h-3" /></button>
-                                    )}
-                                </div>
-                            ))}
-                        </div>
-                        <button onClick={() => { const idx = pages.findIndex(p => p.id === activePageId); if (idx < pages.length - 1) setActivePageId(pages[idx + 1].id); }} disabled={pages.length === 0 || pages[pages.length - 1].id === activePageId} className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-800 rounded-lg text-gray-500 disabled:opacity-30 disabled:hover:bg-transparent flex-shrink-0" title="Pizarra Siguiente"><IconChevronUp className="w-5 h-5 rotate-90" /></button>
-                        {isTeacher && <button onClick={addPage} className="flex-shrink-0 w-10 h-10 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 flex items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-400 hover:text-primary transition-colors" title="Nueva Pizarra"><IconPlus className="w-5 h-5" /></button>}
-                    </div>
+                    <SlideCarousel
+                        pages={pages}
+                        activePageId={activePageId}
+                        isTeacher={isTeacher}
+                        pagesListRef={pagesListRef}
+                        onSelectPage={setActivePageId}
+                        onAddPage={addPage}
+                        onAddPageAtIndex={addPageAtIndex}
+                        onDeletePage={(pageId) => deletePage(pageId)}
+                        onSavePageToLibrary={handleSavePageToLibrary}
+                        onDownloadPageAsJpeg={handleDownloadPageAsJpeg}
+                        onDragStartPage={handleDragStartPage}
+                        onDragOverPage={handleDragOverPage}
+                        onDropOnPageIndex={handleDropOnPageIndex}
+                        onDragEndPage={() => { draggedPageIdRef.current = null; }}
+                    />
 
                     <div className="h-full overflow-hidden w-full min-w-0" ref={libraryBarRef}>
                         {isTeacher ? (
